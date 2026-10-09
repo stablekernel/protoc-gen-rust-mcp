@@ -1,0 +1,6 @@
+[toolchain]
+# Pinned stable toolchain (>= 1.88, rmcp's MSRV). Checked against the
+# installed `rustc --version` in the factory image (1.99.0, 2026-09-28) when
+# this file was added; bump together with Cargo.lock when upgrading.
+channel = "1.99.0"
+components = ["rustfmt", "clippy"]
