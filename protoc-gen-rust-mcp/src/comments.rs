@@ -32,6 +32,11 @@ pub fn process_comment_to_string(comments: &str) -> String {
         .collect::<Vec<_>>()
         .join(" ");
 
+    // `str::trim` is deliberately Unicode-aware here, matching Go's
+    // `strings.TrimSpace` (which strips edges via `unicode.IsSpace`, so a
+    // leading/trailing NBSP is trimmed too); only the *interior*
+    // whitespace-run collapse below is ASCII-only, matching Go's RE2
+    // `\s+`. The two are not the same whitespace definition on purpose.
     let trimmed = joined.trim();
 
     // Collapse runs of whitespace (including the spaces just introduced
@@ -41,12 +46,16 @@ pub fn process_comment_to_string(comments: &str) -> String {
 
 /// Collapses every run of one or more whitespace characters in `s` into a
 /// single ASCII space, the counterpart of Go's
-/// `whitespaceRunRegexp.ReplaceAllString(s, " ")`.
+/// `whitespaceRunRegexp.ReplaceAllString(s, " ")`. Go's `\s` in RE2 is
+/// ASCII-only (`[\t\n\f\r ]`), not Unicode whitespace, so this uses
+/// [`char::is_ascii_whitespace`] rather than [`char::is_whitespace`]: a
+/// non-ASCII space such as NBSP (`\u{00A0}`) must survive untouched, the
+/// same as Go.
 fn collapse_whitespace_runs(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let mut in_run = false;
     for c in s.chars() {
-        if c.is_whitespace() {
+        if c.is_ascii_whitespace() {
             if !in_run {
                 out.push(' ');
                 in_run = true;
@@ -186,6 +195,17 @@ mod tests {
     #[test]
     fn process_comment_to_string_empty_is_empty() {
         assert_eq!(process_comment_to_string(""), "");
+    }
+
+    #[test]
+    fn process_comment_to_string_collapses_ascii_whitespace_only() {
+        // Go's `\s+` (RE2) is ASCII-only, so a non-breaking space must
+        // survive untouched rather than being collapsed like a regular
+        // space would be.
+        assert_eq!(
+            process_comment_to_string(" a\u{00A0}\u{00A0}b\n"),
+            "a\u{00A0}\u{00A0}b"
+        );
     }
 
     // Ports of Go's camelToSpace cases exercised through the fallback
