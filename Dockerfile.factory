@@ -1,0 +1,45 @@
+# syntax=docker/dockerfile:1
+#
+# Image for the sf-factory agent factory (https://github.com/stablekernel-blue/sf-factory)
+# that works on this repo. It extends the sf-factory worker image (which already
+# has rustup, stable Rust, clippy and rustfmt) with what AGENTS.md's checks and
+# `make generate` need: protoc and the prost/tonic/pbjson protoc plugins. Not
+# used by CI or releases.
+#
+# Built by sf-factory's `scripts/factory-local` with
+#   FACTORY_DOCKERFILE=/path/to/protoc-gen-rust-mcp/Dockerfile.factory
+
+ARG FACTORY_BASE_IMAGE=sf-factory-local:dev
+FROM ${FACTORY_BASE_IMAGE}
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+USER root
+
+# protoc 29.3, the version in the committed generated headers. The protobuf
+# project publishes no checksum files; these SHA-256 sums were computed from
+# the release assets on 2026-10-08.
+ARG PROTOC_VERSION=29.3
+ARG PROTOC_SHA256_ARM64=6427349140e01f06e049e707a58709a4f221ae73ab9a0425bc4a00c8d0e1ab32
+ARG PROTOC_SHA256_X64=3e866620c5be27664f3d2fa2d656b5f3e09b5152b42f1bedbf427b333e90021a
+RUN case "$(dpkg --print-architecture)" in \
+      arm64) pc_arch=aarch_64; pc_sha="${PROTOC_SHA256_ARM64}" ;; \
+      amd64) pc_arch=x86_64;   pc_sha="${PROTOC_SHA256_X64}" ;; \
+      *) echo "unsupported architecture" >&2; exit 1 ;; \
+    esac \
+ && curl -fsSL -o /tmp/protoc.zip \
+      "https://github.com/protocolbuffers/protobuf/releases/download/v${PROTOC_VERSION}/protoc-${PROTOC_VERSION}-linux-${pc_arch}.zip" \
+ && echo "${pc_sha}  /tmp/protoc.zip" | sha256sum -c - \
+ && unzip -q /tmp/protoc.zip -d /usr/local/protoc \
+ && ln -s /usr/local/protoc/bin/protoc /usr/local/bin/protoc \
+ && chmod -R a+rX /usr/local/protoc \
+ && rm /tmp/protoc.zip \
+ && protoc --version
+
+USER factory
+
+# protoc plugins for the Rust generated code that sits next to this plugin's
+# output (versions documented in AGENTS.md). `--locked` builds them with their
+# published Cargo.lock; crates.io verifies each crate's checksum.
+RUN cargo install --locked protoc-gen-prost@0.5.0 protoc-gen-tonic@0.5.0 protoc-gen-prost-serde@0.4.0 \
+ && rm -rf "${CARGO_HOME}/registry" "${CARGO_HOME}/git" \
+ && command -v protoc-gen-prost protoc-gen-tonic protoc-gen-prost-serde
