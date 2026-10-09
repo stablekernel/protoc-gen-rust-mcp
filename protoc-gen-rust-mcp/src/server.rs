@@ -4,7 +4,10 @@
 //! `generateToolRegistration` and `generateDefaultToolsRegistration`
 //! (`cmd/protoc-gen-go-mcp/mcp.go` at commit `9e072f9`). Handler *bodies*
 //! are #7; `method_handler_stub` below only emits a "not implemented" tool
-//! error, matching this issue's scope.
+//! error, matching this issue's scope. `method_public_handler_fn` emits
+//! the public `pub async fn <method>_handler(&self, args)` wrapper Go also
+//! exports, so a caller can delegate to the default behavior from an
+//! overriding tool.
 //!
 //! # Shape
 //!
@@ -51,11 +54,11 @@ use crate::source_info::leading_comments;
 
 /// Renders the full generated module for one service: the input schema
 /// constants, the tool handler type alias, the server struct, its `impl`
-/// block (constructor, one `<method>_tool()` + stub handler per unary
-/// RPC, `register_tool`, `register_default_tools`,
-/// `into_tools`/`extend_tools`), and its `rmcp::ServerHandler` impl.
-/// Streaming RPCs are skipped, with a comment noting each one skipped
-/// (per the issue).
+/// block (constructor, one `<method>_tool()` + stub handler + public
+/// `<method>_handler()` wrapper per unary RPC, `register_tool`,
+/// `register_default_tools`, `into_tools`/`extend_tools`), and its
+/// `rmcp::ServerHandler` impl. Streaming RPCs are skipped, with a comment
+/// noting each one skipped (per the issue).
 pub fn generate_service(service: &ServiceDescriptor) -> String {
     let service_name = service.name();
     let server_name = format!("{service_name}McpServer");
@@ -87,7 +90,7 @@ pub fn generate_service(service: &ServiceDescriptor) -> String {
     }
 
     for method in &unary_methods {
-        out.push_str(&schema_constant(method));
+        out.push_str(&schema_constant(service_name, method));
         out.push('\n');
     }
 
@@ -153,9 +156,11 @@ pub fn generate_service(service: &ServiceDescriptor) -> String {
     );
 
     for method in &unary_methods {
-        out.push_str(&method_tool_fn(method));
+        out.push_str(&method_tool_fn(service_name, method));
         out.push('\n');
         out.push_str(&method_handler_stub(&client_path, method));
+        out.push('\n');
+        out.push_str(&method_public_handler_fn(method));
         out.push('\n');
     }
 
@@ -189,7 +194,7 @@ pub fn generate_service(service: &ServiceDescriptor) -> String {
             out,
             "        {{\n\
              \u{20}           let client = self.client.clone();\n\
-             \u{20}           self.register_tool(Self::{fn_name}_tool(), move |args| Self::{fn_name}_handler(client.clone(), args));\n\
+             \u{20}           self.register_tool(Self::{fn_name}_tool(), move |args| Self::call_{fn_name}(client.clone(), args));\n\
              \u{20}       }}\n"
         );
     }
@@ -262,12 +267,25 @@ pub fn generate_service(service: &ServiceDescriptor) -> String {
     out
 }
 
-/// The `static <SHOUTY_METHOD>_INPUT_SCHEMA: LazyLock<Arc<JsonObject>>`
+/// The name of the package-level `static ..._INPUT_SCHEMA` constant for
+/// one method, prefixed with its service's name so that two services in
+/// the same proto package (and so the same generated `.mcp.rs` file) that
+/// happen to share a method name (e.g. both have a `Get` RPC) don't
+/// collide: `VIBE_SERVICE_SET_VIBE_INPUT_SCHEMA`, not `SET_VIBE_INPUT_SCHEMA`.
+fn schema_const_name(service_name: &str, method: &MethodDescriptor) -> String {
+    format!(
+        "{}_{}_INPUT_SCHEMA",
+        service_name.to_shouty_snake_case(),
+        method.name().to_shouty_snake_case()
+    )
+}
+
+/// The `static <SERVICE>_<METHOD>_INPUT_SCHEMA: LazyLock<Arc<JsonObject>>`
 /// declaration for one method, parsed once from a JSON literal embedding
 /// the schema `message_input_schema` builds for the method's input
 /// message (the issue's "embedded as a JSON literal parsed once").
-fn schema_constant(method: &MethodDescriptor) -> String {
-    let const_name = format!("{}_INPUT_SCHEMA", method.name().to_shouty_snake_case());
+fn schema_constant(service_name: &str, method: &MethodDescriptor) -> String {
+    let const_name = schema_const_name(service_name, method);
     let schema: Value = message_input_schema(&method.input());
     let schema_json = serde_json::to_string(&schema)
         .expect("schema is built entirely out of maps, slices and JSON-safe scalars");
@@ -290,11 +308,11 @@ fn schema_constant(method: &MethodDescriptor) -> String {
 /// one method: its name (the RPC's proto method name as written), its
 /// description (leading comment, falling back to `camel_to_space`), and
 /// the schema constant as its input schema.
-fn method_tool_fn(method: &MethodDescriptor) -> String {
+fn method_tool_fn(service_name: &str, method: &MethodDescriptor) -> String {
     let method_name = method.name();
     let fn_name = method_fn_name(method);
     let description = method_description(method);
-    let const_name = format!("{}_INPUT_SCHEMA", method_name.to_shouty_snake_case());
+    let const_name = schema_const_name(service_name, method);
     let name_lit = rust_string_literal(method_name);
     let desc_lit = rust_string_literal(&description);
     format!(
@@ -319,10 +337,14 @@ fn method_description(method: &MethodDescriptor) -> String {
     }
 }
 
-/// The stub handler for one method: an async associated function that
-/// always returns a "not implemented" tool error. A later generator issue
-/// (#7) replaces this with argument validation, pbjson decoding, the
-/// tonic call, and a pbjson-encoded response.
+/// The stub handler for one method: a private async associated function
+/// that takes an owned client and always returns a "not implemented" tool
+/// error. A later generator issue (#7) replaces this with argument
+/// validation, pbjson decoding, the tonic call, and a pbjson-encoded
+/// response. Named `call_<method>` (not `<method>_handler`, which is the
+/// public wrapper in [`method_public_handler_fn`]) because
+/// `register_default_tools` builds its closures from this one directly,
+/// cloning `self.client` once per registration rather than per call.
 fn method_handler_stub(client_path: &str, method: &MethodDescriptor) -> String {
     let method_name = method.name();
     let fn_name = method_fn_name(method);
@@ -331,13 +353,37 @@ fn method_handler_stub(client_path: &str, method: &MethodDescriptor) -> String {
          \u{20}   /// implemented\" tool error. A later generator issue (#7) replaces\n\
          \u{20}   /// this with argument validation, pbjson decoding, the `{method_name}`\n\
          \u{20}   /// tonic call, and a pbjson-encoded response.\n\
-         \u{20}   async fn {fn_name}_handler(\n\
+         \u{20}   async fn call_{fn_name}(\n\
          \u{20}       _client: {client_path}<T>,\n\
          \u{20}       _args: ::std::option::Option<::rmcp::model::JsonObject>,\n\
          \u{20}   ) -> ::rmcp::model::CallToolResult {{\n\
          \u{20}       ::rmcp::model::CallToolResult::error(vec![::rmcp::model::ContentBlock::text(\n\
          \u{20}           \"{method_name} is not implemented\",\n\
          \u{20}       )])\n\
+         \u{20}   }}\n"
+    )
+}
+
+/// The public `pub async fn <method>_handler(&self, args) -> CallToolResult`
+/// associated function for one method: exported (like Go's `XxxHandler`
+/// methods) so a caller can wrap a default handler, e.g. register an
+/// overriding tool that pre-processes arguments and then delegates to this
+/// one, which `register_default_tools` itself does not need (it calls the
+/// private [`method_handler_stub`] directly with a clone of `self.client`
+/// made once per registration, not once per call).
+fn method_public_handler_fn(method: &MethodDescriptor) -> String {
+    let method_name = method.name();
+    let fn_name = method_fn_name(method);
+    format!(
+        "    /// Calls the stub handler for `{method_name}` with a clone of this\n\
+         \u{20}   /// server's client. Exported so a caller can wrap it, e.g. an\n\
+         \u{20}   /// overriding tool (via [`register_tool`](Self::register_tool)) that\n\
+         \u{20}   /// pre-processes arguments and then delegates here.\n\
+         \u{20}   pub async fn {fn_name}_handler(\n\
+         \u{20}       &self,\n\
+         \u{20}       args: ::std::option::Option<::rmcp::model::JsonObject>,\n\
+         \u{20}   ) -> ::rmcp::model::CallToolResult {{\n\
+         \u{20}       Self::call_{fn_name}(self.client.clone(), args).await\n\
          \u{20}   }}\n"
     )
 }

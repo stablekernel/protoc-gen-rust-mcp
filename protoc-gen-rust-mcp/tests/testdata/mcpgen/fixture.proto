@@ -53,8 +53,12 @@ service VibeFixtureService {
 }
 
 // A second service, used to test that one MCP server can serve tools from
-// several services.
+// several services, and that a method name shared with another service in
+// the same package (here, "GetVibe") doesn't collide in the generated
+// code (e.g. two package-level `static GET_VIBE_INPUT_SCHEMA` items).
 service OtherFixtureService {
   // Does the other thing.
   rpc DoOther(OtherRequest) returns (OtherResponse) {}
+  // Shares its name with VibeFixtureService.GetVibe, on purpose.
+  rpc GetVibe(OtherRequest) returns (OtherResponse) {}
 }

@@ -133,9 +133,53 @@ async fn register_tool_overrides_a_default_tool() {
     assert_eq!(text.text, "overridden");
 }
 
+/// The public `<method>_handler` wrapper (`get_vibe_handler`) lets an
+/// overriding tool delegate to the default behavior after pre-processing
+/// arguments, the way Go's exported `XxxHandler` methods do (review
+/// feedback on #21: "Expose the handlers publicly, as Go does").
+#[tokio::test]
+async fn public_handler_wrapper_can_be_delegated_to_from_an_override() {
+    let mut server = mcpgen::VibeFixtureServiceMcpServer::new(lazy_vibe_client());
+    server.register_default_tools();
+
+    // Cloned before the override is registered, so the clone's own `tools`
+    // map is irrelevant: `get_vibe_handler` only reads `self.client`, not
+    // `self.tools`, so this purely exercises the public wrapper delegating
+    // to the same stub behavior as the default registration.
+    let delegate = server.clone();
+    server.register_tool(
+        mcpgen::VibeFixtureServiceMcpServer::<tonic::transport::Channel>::get_vibe_tool(),
+        move |args| {
+            let delegate = delegate.clone();
+            async move { delegate.get_vibe_handler(args).await }
+        },
+    );
+
+    let client = serve(server).await;
+    let result = client
+        .call_tool(CallToolRequestParams::new("GetVibe"))
+        .await
+        .expect("call_tool");
+    // Same "not implemented" stub behavior as calling the default handler
+    // directly, proving the override actually delegated rather than
+    // short-circuiting.
+    assert_eq!(result.is_error, Some(true));
+    let rmcp::model::ContentBlock::Text(text) = &result.content[0] else {
+        panic!("expected text content");
+    };
+    assert_eq!(text.text, "GetVibe is not implemented");
+}
+
 /// `into_tools`/`extend_tools` let one MCP server serve tools from
 /// several services: the issue's "several services' tools can be served
 /// from one MCP server" criterion.
+///
+/// `OtherFixtureService` also declares a `GetVibe` RPC (same name as
+/// `VibeFixtureService.GetVibe`, on purpose — review feedback on #21):
+/// this test compiling and passing at all proves the two services' input
+/// schema constants don't collide in the generated `mcpgen.mcp.rs` (they
+/// used to be named only after the method, e.g. two
+/// `static GET_VIBE_INPUT_SCHEMA` items, which failed to compile).
 #[tokio::test]
 async fn one_server_can_serve_tools_from_two_services() {
     let mut vibe_server = mcpgen::VibeFixtureServiceMcpServer::new(lazy_vibe_client());
@@ -150,6 +194,9 @@ async fn one_server_can_serve_tools_from_two_services() {
     let tools = client.list_all_tools().await.expect("list_all_tools");
     let mut names: Vec<String> = tools.iter().map(|t| t.name.to_string()).collect();
     names.sort_unstable();
+    // "GetVibe" appears once (last write wins on the shared tool name, as
+    // `register_tool`'s doc promises), even though both services declare
+    // it.
     assert_eq!(
         names,
         vec![
@@ -167,6 +214,31 @@ async fn one_server_can_serve_tools_from_two_services() {
         .await
         .expect("call_tool");
     assert_eq!(result.is_error, Some(true));
+}
+
+/// Each service's own `GetVibe` input schema reflects its own RPC's
+/// request message (`GetVibeRequest` has no fields;
+/// `OtherRequest` has one), confirming the two same-named tools' schema
+/// constants are genuinely distinct package-level items, not one
+/// accidentally shared between the two services.
+#[test]
+fn same_named_tools_across_services_have_independent_schemas() {
+    let vibe_schema =
+        mcpgen::VibeFixtureServiceMcpServer::<tonic::transport::Channel>::get_vibe_tool()
+            .schema_as_json_value();
+    let other_schema =
+        mcpgen::OtherFixtureServiceMcpServer::<tonic::transport::Channel>::get_vibe_tool()
+            .schema_as_json_value();
+    assert_ne!(
+        vibe_schema, other_schema,
+        "VibeFixtureService.GetVibe and OtherFixtureService.GetVibe have different \
+         request messages and must not share a schema"
+    );
+    assert_eq!(vibe_schema["properties"], serde_json::json!({}));
+    assert_eq!(
+        other_schema["properties"]["value"]["type"],
+        serde_json::json!("string")
+    );
 }
 
 /// Every stub handler returns an `isError: true` "not implemented" tool
