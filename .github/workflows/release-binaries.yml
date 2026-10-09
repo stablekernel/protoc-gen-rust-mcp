@@ -1,0 +1,118 @@
+name: Release Binaries
+
+on:
+  release:
+    types: [created]
+  workflow_dispatch:
+    # Dry run: builds and uploads the same archives as workflow artifacts
+    # instead of attaching them to a GitHub release, so the workflow can be
+    # exercised on a branch/PR without a real release existing.
+
+concurrency:
+  group: release-binaries-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # All six runners build natively for their own target triple; no
+          # cross-compilation toolchain (e.g. `cross`) is needed.
+          - os: linux
+            arch: x86_64
+            runner: ubuntu-24.04
+          - os: linux
+            arch: aarch64
+            runner: ubuntu-24.04-arm
+          - os: macos
+            arch: x86_64
+            runner: macos-15-intel
+          - os: macos
+            arch: aarch64
+            runner: macos-15
+          - os: windows
+            arch: x86_64
+            runner: windows-latest
+          - os: windows
+            arch: aarch64
+            runner: windows-11-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        run: rustup show
+
+      - name: Build release binary
+        run: cargo build --release -p protoc-gen-rust-mcp
+
+      - name: Check --version matches the release tag
+        if: github.event_name == 'release'
+        shell: bash
+        run: |
+          set -euo pipefail
+          bin="target/release/protoc-gen-rust-mcp${{ matrix.os == 'windows' && '.exe' || '' }}"
+          actual="$("$bin" --version)"
+          expected="protoc-gen-rust-mcp ${GITHUB_REF_NAME#v}"
+          if [ "$actual" != "$expected" ]; then
+            echo "::error::--version printed '${actual}', expected '${expected}' (from release tag ${GITHUB_REF_NAME})"
+            exit 1
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: protoc-gen-rust-mcp-${{ matrix.os }}-${{ matrix.arch }}
+          path: target/release/protoc-gen-rust-mcp${{ matrix.os == 'windows' && '.exe' || '' }}
+          if-no-files-found: error
+
+  package:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Display structure of downloaded files
+        run: ls -R artifacts
+
+      - name: Create release archives and checksums
+        run: |
+          set -euo pipefail
+          mkdir -p release-archives
+          cd artifacts
+          for dir in */; do
+            dir_name=${dir%/}
+            if [[ "$dir_name" == *"windows"* ]]; then
+              zip -j "../release-archives/${dir_name}.zip" "$dir"/*
+            else
+              tar -czf "../release-archives/${dir_name}.tar.gz" -C "$dir" .
+            fi
+          done
+          cd ../release-archives
+          sha256sum * > checksums.txt
+          ls -la
+
+      - name: Upload binaries to release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@e598afbe1493e6b1bafb1f389cabb956eab91231 # v3.0.3
+        with:
+          files: release-archives/*
+
+      - name: Upload archives as workflow artifacts (dry run)
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-archives
+          path: release-archives/*
+          if-no-files-found: error

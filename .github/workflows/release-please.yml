@@ -1,0 +1,41 @@
+name: release-please
+
+on:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: release-please-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    environment: release
+    steps:
+      # Like Go's release-please.yml: a bot PAT so the release PR and the
+      # tag/release it creates trigger downstream Actions runs (events from
+      # the default GITHUB_TOKEN don't). If TOKEN_BOT_GITHUB_TOKEN isn't
+      # configured as a repository secret, this step fails rather than
+      # silently falling back to GITHUB_TOKEN.
+      - name: Require TOKEN_BOT_GITHUB_TOKEN
+        env:
+          BOT_TOKEN_SET: ${{ secrets.TOKEN_BOT_GITHUB_TOKEN != '' }}
+        run: |
+          if [ "${BOT_TOKEN_SET}" != "true" ]; then
+            echo "::error::TOKEN_BOT_GITHUB_TOKEN secret is not set in the 'release' environment. See the repository's environment settings or ask a maintainer to add it (see issue #12)." >&2
+            exit 1
+          fi
+
+      - uses: googleapis/release-please-action@8b8fd2cc23b2e18957157a9d923d75aa0c6f6ad5 # v5.0.0
+        id: release
+        with:
+          token: ${{ secrets.TOKEN_BOT_GITHUB_TOKEN }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
