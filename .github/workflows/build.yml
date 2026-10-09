@@ -1,0 +1,88 @@
+name: Build and Test
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        run: rustup show
+
+      - name: Format check
+        run: cargo fmt --all --check
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Build
+        run: cargo build --workspace
+
+      - name: Test
+        run: cargo test --workspace
+
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        run: rustup show
+
+      # Pinned to match AGENTS.md / Dockerfile.factory: protoc 29.3,
+      # protoc-gen-prost 0.5.0, protoc-gen-tonic 0.5.0 and
+      # protoc-gen-prost-serde 0.4.0. If these drift from the committed
+      # examples/src/gen/ output, this job fails below.
+      - name: Set up protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          version: "29.3"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install prost/tonic/serde protoc plugins
+        run: |
+          cargo install --locked protoc-gen-prost@0.5.0 protoc-gen-tonic@0.5.0 protoc-gen-prost-serde@0.4.0
+
+      - name: Generate
+        run: make generate
+
+      - name: Fail if generated files are out of date
+        run: |
+          git diff --exit-code -- examples/src/gen || {
+            echo "::error::examples/src/gen is out of date; run 'make generate' and commit the result."
+            exit 1
+          }
+
+  build:
+    runs-on: ${{ matrix.os }}-latest
+    strategy:
+      matrix:
+        os: [ubuntu, macos, windows]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        run: rustup show
+
+      - name: Build release binary
+        run: cargo build --release -p protoc-gen-rust-mcp
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: protoc-gen-rust-mcp-${{ matrix.os }}
+          path: target/release/protoc-gen-rust-mcp${{ matrix.os == 'windows' && '.exe' || '' }}
+          if-no-files-found: error
