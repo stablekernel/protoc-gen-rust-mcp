@@ -14,6 +14,7 @@ use prost::Message;
 use prost_types::compiler::CodeGeneratorRequest;
 
 mod generator;
+mod schema;
 
 fn main() -> ExitCode {
     let mut args = std::env::args().skip(1);
