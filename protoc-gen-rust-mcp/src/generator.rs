@@ -12,8 +12,13 @@ use prost_types::compiler::code_generator_response::File;
 /// `protobuf/compiler/plugin.proto`'s `CodeGeneratorResponse`, extended with
 /// the `minimum_edition` and `maximum_edition` fields (tags 3 and 4) that
 /// `prost-types` 0.14 doesn't expose on its own `CodeGeneratorResponse`
-/// (it vendors an older copy of `plugin.proto`). The wire format is
-/// unchanged, so this still round-trips through `protoc`.
+/// (it vendors an older copy of `plugin.proto`; confirmed still missing as
+/// of `prost-types` master on 2026-10-09). The wire format is unchanged, so
+/// this still round-trips through `protoc`.
+///
+/// If a future `prost-types` release adds these fields to its own
+/// `CodeGeneratorResponse`, drop this struct and use that one directly
+/// instead of keeping two types with overlapping tags in sync by hand.
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CodeGeneratorResponse {
     #[prost(string, optional, tag = "1")]
