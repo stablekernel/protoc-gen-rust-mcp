@@ -1,0 +1,294 @@
+// @generated
+static SET_VIBE_INPUT_SCHEMA: ::std::sync::LazyLock<::std::sync::Arc<::rmcp::model::JsonObject>> =
+    ::std::sync::LazyLock::new(|| {
+        ::std::sync::Arc::new(
+            match ::serde_json::from_str(r#"{"additionalProperties":false,"description":"The request to set the vibe of the server","properties":{"vibe":{"description":"The vibe of the server to be set. Must match \\d+ or a `code` like \"chill\", and must not contain a literal newline.","type":"string"}},"type":"object"}"#) {
+                Ok(::serde_json::Value::Object(map)) => map,
+                Ok(_) => unreachable!("input schema is always a JSON object"),
+                Err(e) => panic!("parsing generated input schema: {e}"),
+            },
+        )
+    });
+
+static GET_VIBE_INPUT_SCHEMA: ::std::sync::LazyLock<::std::sync::Arc<::rmcp::model::JsonObject>> =
+    ::std::sync::LazyLock::new(|| {
+        ::std::sync::Arc::new(
+            match ::serde_json::from_str(r#"{"additionalProperties":false,"description":"The request to get the vibe of the server","properties":{},"type":"object"}"#) {
+                Ok(::serde_json::Value::Object(map)) => map,
+                Ok(_) => unreachable!("input schema is always a JSON object"),
+                Err(e) => panic!("parsing generated input schema: {e}"),
+            },
+        )
+    });
+
+static SET_VIBE_DETAILS_INPUT_SCHEMA: ::std::sync::LazyLock<::std::sync::Arc<::rmcp::model::JsonObject>> =
+    ::std::sync::LazyLock::new(|| {
+        ::std::sync::Arc::new(
+            match ::serde_json::from_str(r#"{"additionalProperties":false,"description":"The detailed vibe of the server","properties":{"vibe":{"description":"The vibe of the string to be set","type":"string"},"vibeScalar":{"additionalProperties":false,"description":"The details of the vibe","properties":{"vibeBool":{"description":"The details of the vibe bool","type":"boolean"},"vibeBytes":{"contentEncoding":"base64","description":"the details of the vibe bytes","type":"string"},"vibeDouble":{"anyOf":[{"type":"number"},{"enum":["NaN","Infinity","-Infinity"],"type":"string"}],"description":"The details of the vibe double"},"vibeEnum":{"description":"The details of the vibe string","items":{"description":"The details of the vibe string","enum":["VIBE_UNSET","VIBE_GOOD"],"type":"string"},"type":"array"},"vibeFixed32":{"description":"The details of the vibe fixed32","minimum":0,"type":"integer"},"vibeFixed64":{"description":"The details of the vibe fixed64","minimum":0,"type":["integer","string"]},"vibeFloat":{"anyOf":[{"type":"number"},{"enum":["NaN","Infinity","-Infinity"],"type":"string"}],"description":"the details of the vibe float"},"vibeInt32":{"description":"The details of the vibe int32","type":"integer"},"vibeInt64":{"description":"The details of the vibe int64","type":["integer","string"]},"vibeSfixed32":{"description":"The details of the vibe sfixed32","type":"integer"},"vibeSfixed64":{"description":"The details of the vibe sfixed64","type":["integer","string"]},"vibeSint32":{"description":"The details of the vibe sint32","type":"integer"},"vibeSint64":{"description":"The details of the vibe sint64","type":["integer","string"]},"vibeUint32":{"description":"The details of the vibe uint32","minimum":0,"type":"integer"},"vibeUint64":{"description":"The details of the vibe uint64","minimum":0,"type":["integer","string"]}},"type":"object"}},"type":"object"}"#) {
+                Ok(::serde_json::Value::Object(map)) => map,
+                Ok(_) => unreachable!("input schema is always a JSON object"),
+                Err(e) => panic!("parsing generated input schema: {e}"),
+            },
+        )
+    });
+
+static SET_VIBE_ARRAY_INPUT_SCHEMA: ::std::sync::LazyLock<::std::sync::Arc<::rmcp::model::JsonObject>> =
+    ::std::sync::LazyLock::new(|| {
+        ::std::sync::Arc::new(
+            match ::serde_json::from_str(r#"{"additionalProperties":false,"description":"The vibe array request","properties":{"vibeArray":{"additionalProperties":false,"description":"The details of the vibe array","properties":{"vibeBools":{"description":"The details of the vibe bool array","items":{"type":"boolean"},"type":"array"},"vibeByteses":{"description":"the details of the vibe bytes array","items":{"contentEncoding":"base64","type":"string"},"type":"array"},"vibeDoubles":{"description":"The details of the vibe double array","items":{"anyOf":[{"type":"number"},{"enum":["NaN","Infinity","-Infinity"],"type":"string"}]},"type":"array"},"vibeFixed32s":{"description":"The details of the vibe fixed32 array","items":{"minimum":0,"type":"integer"},"type":"array"},"vibeFixed64s":{"description":"The details of the vibe fixed64 array","items":{"minimum":0,"type":["integer","string"]},"type":"array"},"vibeFloats":{"description":"the details of the vibe float array","items":{"anyOf":[{"type":"number"},{"enum":["NaN","Infinity","-Infinity"],"type":"string"}]},"type":"array"},"vibeInt32s":{"description":"The details of the vibe int32 array","items":{"type":"integer"},"type":"array"},"vibeInt64s":{"description":"The details of the vibe int64 array","items":{"type":["integer","string"]},"type":"array"},"vibeSfixed32s":{"description":"The details of the vibe sfixed32 array","items":{"type":"integer"},"type":"array"},"vibeSfixed64s":{"description":"The details of the vibe sfixed64 array","items":{"type":["integer","string"]},"type":"array"},"vibeSint32s":{"description":"The details of the vibe sint32 array","items":{"type":"integer"},"type":"array"},"vibeSint64s":{"description":"The details of the vibe sint64 array","items":{"type":["integer","string"]},"type":"array"},"vibeUint32s":{"description":"The details of the vibe uint32 array","items":{"minimum":0,"type":"integer"},"type":"array"},"vibeUint64s":{"description":"The details of the vibe uint64 array","items":{"minimum":0,"type":["integer","string"]},"type":"array"}},"type":"object"}},"type":"object"}"#) {
+                Ok(::serde_json::Value::Object(map)) => map,
+                Ok(_) => unreachable!("input schema is always a JSON object"),
+                Err(e) => panic!("parsing generated input schema: {e}"),
+            },
+        )
+    });
+
+static SET_VIBE_OBJECTS_INPUT_SCHEMA: ::std::sync::LazyLock<::std::sync::Arc<::rmcp::model::JsonObject>> =
+    ::std::sync::LazyLock::new(|| {
+        ::std::sync::Arc::new(
+            match ::serde_json::from_str(r#"{"additionalProperties":false,"description":"The request to set multiple vibe objects on the server","properties":{"vibeObject":{"description":"The details of the vibe","items":{"additionalProperties":false,"description":"The vibe object of the server","properties":{"vibe":{"description":"The vibe of the server","type":"string"}},"type":"object"},"type":"array"}},"type":"object"}"#) {
+                Ok(::serde_json::Value::Object(map)) => map,
+                Ok(_) => unreachable!("input schema is always a JSON object"),
+                Err(e) => panic!("parsing generated input schema: {e}"),
+            },
+        )
+    });
+
+/// A registered tool's handler: takes the raw tool call arguments
+/// (already looked up by name), returns the result. Built once per
+/// registered tool from an `async fn(client, args) -> CallToolResult`
+/// associated function so every handler future is `'static` without an
+/// `Arc` cycle back through the `tools` map (see the module doc comment
+/// on why this, not `rmcp::ToolRouter`).
+pub type VibeServiceMcpServerToolHandler = ::std::sync::Arc<
+    dyn Fn(
+        ::std::option::Option<::rmcp::model::JsonObject>,
+    ) -> ::futures::future::BoxFuture<'static, ::rmcp::model::CallToolResult>
+        + ::std::marker::Send
+        + ::std::marker::Sync,
+>;
+
+/// The MCP server for the `VibeService` gRPC service: exposes each of
+/// its non-streaming RPCs as an MCP tool and forwards tool calls to a
+/// `VibeServiceClient<T>`. No tools are registered until
+/// [`VibeServiceMcpServer::register_default_tools`] or
+/// [`VibeServiceMcpServer::register_tool`] is called, matching the Go plugin.
+#[derive(Clone)]
+pub struct VibeServiceMcpServer<T> {
+    client: vibe_service_client::VibeServiceClient<T>,
+    tools: ::std::collections::BTreeMap<::std::string::String, (::rmcp::model::Tool, VibeServiceMcpServerToolHandler)>,
+    server_info: ::rmcp::model::Implementation,
+}
+
+impl<T> VibeServiceMcpServer<T>
+where
+    T: ::std::clone::Clone + ::std::marker::Send + ::std::marker::Sync + 'static,
+{
+    /// Creates a new `VibeServiceMcpServer` with no tools registered yet; call
+    /// [`register_default_tools`](Self::register_default_tools) or
+    /// [`register_tool`](Self::register_tool) to add some.
+    pub fn new(client: vibe_service_client::VibeServiceClient<T>) -> Self {
+        Self {
+            client,
+            tools: ::std::collections::BTreeMap::new(),
+            server_info: ::rmcp::model::Implementation::from_build_env(),
+        }
+    }
+
+    /// Overrides the `serverInfo` advertised by `get_info` (defaults to this
+    /// crate's name and version).
+    pub fn with_server_info(mut self, server_info: ::rmcp::model::Implementation) -> Self {
+        self.server_info = server_info;
+        self
+    }
+
+    /// Builds the [`rmcp::model::Tool`] for `SetVibe`.
+    pub fn set_vibe_tool() -> ::rmcp::model::Tool {
+        ::rmcp::model::Tool::new(r"SetVibe", r#"This is a block comment with multiple lines to test block handling "Hello World", a `backtick`, and a path like C:\vibes\new"#, SET_VIBE_INPUT_SCHEMA.clone())
+    }
+
+    /// Stub handler for `SetVibe`: always returns a "not
+    /// implemented" tool error. A later generator issue (#7) replaces
+    /// this with argument validation, pbjson decoding, the `SetVibe`
+    /// tonic call, and a pbjson-encoded response.
+    async fn set_vibe_handler(
+        _client: vibe_service_client::VibeServiceClient<T>,
+        _args: ::std::option::Option<::rmcp::model::JsonObject>,
+    ) -> ::rmcp::model::CallToolResult {
+        ::rmcp::model::CallToolResult::error(vec![::rmcp::model::ContentBlock::text(
+            "SetVibe is not implemented",
+        )])
+    }
+
+    /// Builds the [`rmcp::model::Tool`] for `GetVibe`.
+    pub fn get_vibe_tool() -> ::rmcp::model::Tool {
+        ::rmcp::model::Tool::new(r"GetVibe", r"Get Vibe of the server", GET_VIBE_INPUT_SCHEMA.clone())
+    }
+
+    /// Stub handler for `GetVibe`: always returns a "not
+    /// implemented" tool error. A later generator issue (#7) replaces
+    /// this with argument validation, pbjson decoding, the `GetVibe`
+    /// tonic call, and a pbjson-encoded response.
+    async fn get_vibe_handler(
+        _client: vibe_service_client::VibeServiceClient<T>,
+        _args: ::std::option::Option<::rmcp::model::JsonObject>,
+    ) -> ::rmcp::model::CallToolResult {
+        ::rmcp::model::CallToolResult::error(vec![::rmcp::model::ContentBlock::text(
+            "GetVibe is not implemented",
+        )])
+    }
+
+    /// Builds the [`rmcp::model::Tool`] for `SetVibeDetails`.
+    pub fn set_vibe_details_tool() -> ::rmcp::model::Tool {
+        ::rmcp::model::Tool::new(r"SetVibeDetails", r"Set vibe details", SET_VIBE_DETAILS_INPUT_SCHEMA.clone())
+    }
+
+    /// Stub handler for `SetVibeDetails`: always returns a "not
+    /// implemented" tool error. A later generator issue (#7) replaces
+    /// this with argument validation, pbjson decoding, the `SetVibeDetails`
+    /// tonic call, and a pbjson-encoded response.
+    async fn set_vibe_details_handler(
+        _client: vibe_service_client::VibeServiceClient<T>,
+        _args: ::std::option::Option<::rmcp::model::JsonObject>,
+    ) -> ::rmcp::model::CallToolResult {
+        ::rmcp::model::CallToolResult::error(vec![::rmcp::model::ContentBlock::text(
+            "SetVibeDetails is not implemented",
+        )])
+    }
+
+    /// Builds the [`rmcp::model::Tool`] for `SetVibeArray`.
+    pub fn set_vibe_array_tool() -> ::rmcp::model::Tool {
+        ::rmcp::model::Tool::new(r"SetVibeArray", r"Set the vibe arrays", SET_VIBE_ARRAY_INPUT_SCHEMA.clone())
+    }
+
+    /// Stub handler for `SetVibeArray`: always returns a "not
+    /// implemented" tool error. A later generator issue (#7) replaces
+    /// this with argument validation, pbjson decoding, the `SetVibeArray`
+    /// tonic call, and a pbjson-encoded response.
+    async fn set_vibe_array_handler(
+        _client: vibe_service_client::VibeServiceClient<T>,
+        _args: ::std::option::Option<::rmcp::model::JsonObject>,
+    ) -> ::rmcp::model::CallToolResult {
+        ::rmcp::model::CallToolResult::error(vec![::rmcp::model::ContentBlock::text(
+            "SetVibeArray is not implemented",
+        )])
+    }
+
+    /// Builds the [`rmcp::model::Tool`] for `SetVibeObjects`.
+    pub fn set_vibe_objects_tool() -> ::rmcp::model::Tool {
+        ::rmcp::model::Tool::new(r"SetVibeObjects", r"Set multiple vibe objects", SET_VIBE_OBJECTS_INPUT_SCHEMA.clone())
+    }
+
+    /// Stub handler for `SetVibeObjects`: always returns a "not
+    /// implemented" tool error. A later generator issue (#7) replaces
+    /// this with argument validation, pbjson decoding, the `SetVibeObjects`
+    /// tonic call, and a pbjson-encoded response.
+    async fn set_vibe_objects_handler(
+        _client: vibe_service_client::VibeServiceClient<T>,
+        _args: ::std::option::Option<::rmcp::model::JsonObject>,
+    ) -> ::rmcp::model::CallToolResult {
+        ::rmcp::model::CallToolResult::error(vec![::rmcp::model::ContentBlock::text(
+            "SetVibeObjects is not implemented",
+        )])
+    }
+
+    /// Registers a single tool, overriding any existing tool with the same
+    /// name (callers can also use this to add a tool this generator did
+    /// not emit).
+    pub fn register_tool<F, Fut>(&mut self, tool: ::rmcp::model::Tool, handler: F) -> &mut Self
+    where
+        F: Fn(::std::option::Option<::rmcp::model::JsonObject>) -> Fut
+            + ::std::marker::Send
+            + ::std::marker::Sync
+            + 'static,
+        Fut: ::std::future::Future<Output = ::rmcp::model::CallToolResult> + ::std::marker::Send + 'static,
+    {
+        let handler: VibeServiceMcpServerToolHandler = ::std::sync::Arc::new(move |args| ::std::boxed::Box::pin(handler(args)));
+        self.tools.insert(tool.name.to_string(), (tool, handler));
+        self
+    }
+
+    /// Registers every unary RPC's tool with its stub handler, the
+    /// counterpart of Go's `RegisterDefaultTools`.
+    pub fn register_default_tools(&mut self) -> &mut Self {
+        {
+            let client = self.client.clone();
+            self.register_tool(Self::set_vibe_tool(), move |args| Self::set_vibe_handler(client.clone(), args));
+        }
+        {
+            let client = self.client.clone();
+            self.register_tool(Self::get_vibe_tool(), move |args| Self::get_vibe_handler(client.clone(), args));
+        }
+        {
+            let client = self.client.clone();
+            self.register_tool(Self::set_vibe_details_tool(), move |args| Self::set_vibe_details_handler(client.clone(), args));
+        }
+        {
+            let client = self.client.clone();
+            self.register_tool(Self::set_vibe_array_tool(), move |args| Self::set_vibe_array_handler(client.clone(), args));
+        }
+        {
+            let client = self.client.clone();
+            self.register_tool(Self::set_vibe_objects_tool(), move |args| Self::set_vibe_objects_handler(client.clone(), args));
+        }
+        self
+    }
+
+    /// Hands this server's registered tools to another generated server,
+    /// so one MCP server can serve several services' tools (pass the
+    /// result to [`extend_tools`](Self::extend_tools) on the other server).
+    pub fn into_tools(self) -> impl ::std::iter::Iterator<Item = (::rmcp::model::Tool, VibeServiceMcpServerToolHandler)> {
+        self.tools.into_values()
+    }
+
+    /// Adds tools (e.g. from another service's
+    /// [`into_tools`](Self::into_tools)) to this server, overriding any
+    /// existing tool with the same name.
+    pub fn extend_tools(
+        &mut self,
+        tools: impl ::std::iter::IntoIterator<Item = (::rmcp::model::Tool, VibeServiceMcpServerToolHandler)>,
+    ) -> &mut Self {
+        for (tool, handler) in tools {
+            self.tools.insert(tool.name.to_string(), (tool, handler));
+        }
+        self
+    }
+}
+
+impl<T> ::rmcp::ServerHandler for VibeServiceMcpServer<T>
+where
+    T: ::std::clone::Clone + ::std::marker::Send + ::std::marker::Sync + 'static,
+{
+    fn get_info(&self) -> ::rmcp::model::ServerConfig {
+        ::rmcp::model::ServerConfig::new(
+            ::rmcp::model::ServerCapabilities::builder().enable_tools().build(),
+        )
+        .with_server_info(self.server_info.clone())
+    }
+
+    async fn list_tools(
+        &self,
+        _request: ::std::option::Option<::rmcp::model::PaginatedRequestParams>,
+        _context: ::rmcp::service::RequestContext<::rmcp::RoleServer>,
+    ) -> ::std::result::Result<::rmcp::model::ListToolsResult, ::rmcp::ErrorData> {
+        Ok(::rmcp::model::ListToolsResult::with_all_items(
+            self.tools.values().map(|(tool, _)| tool.clone()).collect(),
+        ))
+    }
+
+    async fn call_tool(
+        &self,
+        request: ::rmcp::model::CallToolRequestParams,
+        _context: ::rmcp::service::RequestContext<::rmcp::RoleServer>,
+    ) -> ::std::result::Result<::rmcp::model::CallToolResponse, ::rmcp::ErrorData> {
+        let (_, handler) = self
+            .tools
+            .get(request.name.as_ref())
+            .ok_or_else(|| ::rmcp::ErrorData::invalid_params("tool not found", None))?;
+        Ok(handler(request.arguments).await.into())
+    }
+
+    fn get_tool(&self, name: &str) -> ::std::option::Option<::rmcp::model::Tool> {
+        self.tools.get(name).map(|(tool, _)| tool.clone())
+    }
+}
