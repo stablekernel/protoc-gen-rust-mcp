@@ -7,6 +7,10 @@ repository.workspace = true
 description = "A protoc plugin that generates an MCP server from a gRPC service definition."
 publish = false
 
+[lib]
+name = "protoc_gen_rust_mcp"
+path = "src/lib.rs"
+
 [[bin]]
 name = "protoc-gen-rust-mcp"
 path = "src/main.rs"
@@ -14,3 +18,7 @@ path = "src/main.rs"
 [dependencies]
 prost = "0.14"
 prost-types = "0.14"
+
+[dev-dependencies]
+protox = "0.10.0"
+syn = { version = "3", features = ["parsing"] }
