@@ -947,6 +947,7 @@ dependencies = [
 name = "protoc-gen-rust-mcp"
 version = "0.1.0"
 dependencies = [
+ "heck",
  "jsonschema",
  "pbjson",
  "pbjson-build",
