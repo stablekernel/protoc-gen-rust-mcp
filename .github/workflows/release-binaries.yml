@@ -8,8 +8,12 @@ on:
     # instead of attaching them to a GitHub release, so the workflow can be
     # exercised on a branch/PR without a real release existing.
 
+concurrency:
+  group: release-binaries-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
@@ -48,6 +52,19 @@ jobs:
       - name: Build release binary
         run: cargo build --release -p protoc-gen-rust-mcp
 
+      - name: Check --version matches the release tag
+        if: github.event_name == 'release'
+        shell: bash
+        run: |
+          set -euo pipefail
+          bin="target/release/protoc-gen-rust-mcp${{ matrix.os == 'windows' && '.exe' || '' }}"
+          actual="$("$bin" --version)"
+          expected="protoc-gen-rust-mcp ${GITHUB_REF_NAME#v}"
+          if [ "$actual" != "$expected" ]; then
+            echo "::error::--version printed '${actual}', expected '${expected}' (from release tag ${GITHUB_REF_NAME})"
+            exit 1
+          fi
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
@@ -58,6 +75,8 @@ jobs:
   package:
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Download all artifacts
         uses: actions/download-artifact@v4

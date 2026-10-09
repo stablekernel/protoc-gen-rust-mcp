@@ -5,6 +5,10 @@ on:
     branches:
       - main
 
+concurrency:
+  group: release-please-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
   contents: write
   issues: write
@@ -13,9 +17,6 @@ permissions:
 jobs:
   release-please:
     runs-on: ubuntu-latest
-    outputs:
-      release_created: ${{ steps.release.outputs.release_created }}
-      tag_name: ${{ steps.release.outputs.tag_name }}
     steps:
       # Like Go's release-please.yml: a bot PAT so the release PR and the
       # tag/release it creates trigger downstream Actions runs (events from
@@ -31,7 +32,7 @@ jobs:
             exit 1
           fi
 
-      - uses: googleapis/release-please-action@v4
+      - uses: googleapis/release-please-action@8b8fd2cc23b2e18957157a9d923d75aa0c6f6ad5 # v5.0.0
         id: release
         with:
           token: ${{ secrets.TOKEN_BOT_GITHUB_TOKEN }}
