@@ -1,0 +1,64 @@
+syntax = "proto3";
+
+package mcpgen;
+
+// The request to set the vibe.
+message SetVibeRequest {
+  // The vibe to set.
+  string vibe = 1;
+}
+
+// The response to setting the vibe.
+message SetVibeResponse {
+  string vibe = 1;
+}
+
+// An empty request.
+message GetVibeRequest {}
+
+// The current vibe.
+message GetVibeResponse {
+  string vibe = 1;
+}
+
+// A streamed chunk.
+message StreamVibeRequest {
+  string vibe = 1;
+}
+
+// A streamed chunk response.
+message StreamVibeResponse {
+  string vibe = 1;
+}
+
+// The request for the other service's tool.
+message OtherRequest {
+  string value = 1;
+}
+
+// The response for the other service's tool.
+message OtherResponse {
+  string value = 1;
+}
+
+// A service with two unary RPCs and one server-streaming RPC, used to
+// test that streaming RPCs produce no tool.
+service VibeFixtureService {
+  // Sets the vibe.
+  rpc SetVibe(SetVibeRequest) returns (SetVibeResponse) {}
+  // Gets the vibe.
+  rpc GetVibe(GetVibeRequest) returns (GetVibeResponse) {}
+  // Streams vibes; should not produce an MCP tool.
+  rpc StreamVibe(StreamVibeRequest) returns (stream StreamVibeResponse) {}
+}
+
+// A second service, used to test that one MCP server can serve tools from
+// several services, and that a method name shared with another service in
+// the same package (here, "GetVibe") doesn't collide in the generated
+// code (e.g. two package-level `static GET_VIBE_INPUT_SCHEMA` items).
+service OtherFixtureService {
+  // Does the other thing.
+  rpc DoOther(OtherRequest) returns (OtherResponse) {}
+  // Shares its name with VibeFixtureService.GetVibe, on purpose.
+  rpc GetVibe(OtherRequest) returns (OtherResponse) {}
+}

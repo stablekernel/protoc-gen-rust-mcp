@@ -10,4 +10,5 @@ pub mod generator;
 pub mod header;
 pub mod rust_literal;
 pub mod schema;
+pub mod server;
 pub mod source_info;

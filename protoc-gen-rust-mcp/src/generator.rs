@@ -1,14 +1,32 @@
 //! The plugin's code generation entry point: `generate` turns a
 //! `CodeGeneratorRequest` into a `CodeGeneratorResponse`, one generated file
-//! per `.proto` file that both is marked for generation (appears in
-//! `file_to_generate`) and declares at least one service. Streaming RPCs and
-//! files without services are skipped, mirroring the Go plugin
+//! per proto *package* that both is marked for generation (appears in
+//! `file_to_generate`) and declares at least one service, following
+//! prost's per-package naming (e.g. `examples.v1.mcp.rs`). Streaming RPCs
+//! and files without services are skipped, mirroring the Go plugin
 //! (`cmd/protoc-gen-go-mcp/main.go`).
+//!
+//! The generated `<package>.mcp.rs` is written standalone (so `--rust-
+//! mcp_out` can target the same directory as `--prost_out` without
+//! clobbering its output) *and* an `include!("<package>.mcp.rs");` line is
+//! appended to the main `<package>.rs` file at its `module` insertion
+//! point, the same convention `protoc-gen-tonic` and
+//! `protoc-gen-prost-serde` use to splice their own output into prost's
+//! main file. `make generate` runs this plugin after those two, so the
+//! insertion point already exists in the file on disk by the time this
+//! append lands (protoc applies every generator's insertions to the
+//! already-written file regardless of order, per `plugin.proto`'s
+//! `insertion_point` doc comment).
 
+use prost_reflect::DescriptorPool;
 use prost_types::FileDescriptorProto;
 use prost_types::compiler::CodeGeneratorRequest;
 use prost_types::compiler::CodeGeneratorResponse;
+use prost_types::compiler::Version;
 use prost_types::compiler::code_generator_response::File;
+
+use crate::header::file_header;
+use crate::server;
 
 /// `CodeGeneratorResponse::Feature` bitmask values
 /// (`protobuf/compiler/plugin.proto`). This plugin does **not** advertise
@@ -24,14 +42,11 @@ use prost_types::compiler::code_generator_response::File;
 const FEATURE_PROTO3_OPTIONAL: u64 = 1;
 
 /// Runs code generation against `request`, producing one generated file per
-/// `.proto` file in `file_to_generate` that declares a service (streaming
+/// proto package in `file_to_generate` that declares a service (streaming
 /// RPCs and files without services are skipped, same as the Go plugin).
 /// Factored out of `main` so tests can call it directly on a hand-built
 /// `CodeGeneratorRequest`, without needing `protoc` or a
 /// `protoc-gen-rust-mcp` binary.
-///
-/// This scaffold doesn't generate any file content yet: `generate_file`
-/// below is a stub for the codegen issues building on it to fill in.
 pub fn generate(request: &CodeGeneratorRequest) -> CodeGeneratorResponse {
     let files_to_generate: Vec<&FileDescriptorProto> = request
         .proto_file
@@ -44,10 +59,44 @@ pub fn generate(request: &CodeGeneratorRequest) -> CodeGeneratorResponse {
         .filter(|f| !f.service.is_empty())
         .collect();
 
-    let file = files_to_generate
-        .into_iter()
-        .filter_map(generate_file)
-        .collect();
+    if files_to_generate.is_empty() {
+        return CodeGeneratorResponse {
+            error: None,
+            supported_features: Some(FEATURE_PROTO3_OPTIONAL),
+            file: Vec::new(),
+        };
+    }
+
+    // A DescriptorPool needs every file in the request (not just the ones
+    // being generated) so cross-file message references resolve; prost-
+    // reflect panics on duplicate files, so include each only once, by
+    // name, same as `request.proto_file` itself already is (protoc never
+    // repeats a file in one request).
+    let file_descriptor_set = prost_types::FileDescriptorSet {
+        file: request.proto_file.clone(),
+    };
+    let pool = DescriptorPool::from_file_descriptor_set(file_descriptor_set)
+        .expect("protoc always sends a well-formed, internally consistent FileDescriptorSet");
+
+    // Group the files to generate by package: prost emits one Rust module
+    // per package (merging every .proto file that shares one), and this
+    // plugin's own output must land in that same module.
+    let mut packages: Vec<String> = Vec::new();
+    for f in &files_to_generate {
+        let package = f.package.clone().unwrap_or_default();
+        if !packages.contains(&package) {
+            packages.push(package);
+        }
+    }
+
+    let mut file = Vec::new();
+    for package in &packages {
+        file.extend(generate_package(
+            &pool,
+            package,
+            request.compiler_version.as_ref(),
+        ));
+    }
 
     CodeGeneratorResponse {
         error: None,
@@ -56,10 +105,59 @@ pub fn generate(request: &CodeGeneratorRequest) -> CodeGeneratorResponse {
     }
 }
 
-/// Generates the MCP server code for one `.proto` file known to declare a
-/// service. Returns `None` for now; later issues give this real content.
-fn generate_file(_proto_file: &FileDescriptorProto) -> Option<File> {
-    None
+/// Generates the standalone `<package>.mcp.rs` file plus the
+/// `include!(...)` appended to `<package>.rs`'s `module` insertion point,
+/// for every service declared in `package` (across however many of its
+/// `.proto` files are in the pool). Returns an empty `Vec` if `package` has
+/// no services (shouldn't happen: callers only pass packages whose files
+/// matched `!f.service.is_empty()`, but a package can in principle split
+/// its services across sibling files).
+fn generate_package(
+    pool: &DescriptorPool,
+    package: &str,
+    compiler_version: Option<&Version>,
+) -> Vec<File> {
+    let services: Vec<_> = pool
+        .services()
+        .filter(|s| s.package_name() == package)
+        .collect();
+    if services.is_empty() {
+        return Vec::new();
+    }
+
+    let output_dir = if package.is_empty() {
+        String::new()
+    } else {
+        package.replace('.', "/") + "/"
+    };
+    let mcp_filename = format!("{package}.mcp.rs");
+    let main_filename = format!("{package}.rs");
+
+    // Starts with the same DO-NOT-EDIT banner and versions block every
+    // other generated file in this crate starts with (#4's `file_header`),
+    // the counterpart of Go's `example_mcp.pb.go` header.
+    let mut content = file_header(env!("CARGO_PKG_VERSION"), compiler_version).join("\n");
+    content.push_str("\n\n");
+    for (i, service) in services.iter().enumerate() {
+        if i > 0 {
+            content.push('\n');
+        }
+        content.push_str(&server::generate_service(service));
+    }
+
+    vec![
+        File {
+            name: Some(format!("{output_dir}{mcp_filename}")),
+            content: Some(content),
+            ..Default::default()
+        },
+        File {
+            name: Some(format!("{output_dir}{main_filename}")),
+            insertion_point: Some("module".to_string()),
+            content: Some(format!("include!(\"{mcp_filename}\");\n")),
+            ..Default::default()
+        },
+    ]
 }
 
 #[cfg(test)]
