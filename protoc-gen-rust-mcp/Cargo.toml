@@ -1,0 +1,16 @@
+[package]
+name = "protoc-gen-rust-mcp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "A protoc plugin that generates an MCP server from a gRPC service definition."
+publish = false
+
+[[bin]]
+name = "protoc-gen-rust-mcp"
+path = "src/main.rs"
+
+[dependencies]
+prost = "0.14"
+prost-types = "0.14"

@@ -1,0 +1,166 @@
+syntax = "proto3";
+
+package examples.v1;
+
+// The request to set the vibe of the server
+message SetVibeRequest {
+  // The vibe of the server to be set. Must match \d+ or a `code` like
+  // "chill", and must not contain a literal newline.
+  string vibe = 1;
+}
+
+// the new vibe of the server
+message SetVibeResponse {
+  string previous_vibe = 1;
+  string vibe = 2;
+}
+
+// The request to get the vibe of the server
+message GetVibeRequest {}
+
+// What the server is currently vibing
+message GetVibeResponse {
+  string vibe = 1;
+}
+
+// The vibe array request
+message SetVibeArrayRequest {
+  // The details of the vibe array
+  VibeArray vibe_array = 1;
+}
+
+// The vibe array response
+message SetVibeArrayResponse {
+  // The details of the vibe array
+  VibeArray vibe_array = 1;
+}
+
+// The vibe scalar
+message VibeScalar {
+  // The details of the vibe double
+  double vibe_double = 2;
+  // the details of the vibe float
+  float vibe_float = 3;
+  // The details of the vibe int32
+  int32 vibe_int32 = 4;
+  // The details of the vibe int64
+  int64 vibe_int64 = 5;
+  // The details of the vibe uint32
+  optional uint32 vibe_uint32 = 6;
+  // The details of the vibe uint64
+  uint64 vibe_uint64 = 7;
+  // The details of the vibe sint32
+  sint32 vibe_sint32 = 8;
+  // The details of the vibe sint64
+  sint64 vibe_sint64 = 9;
+  // The details of the vibe fixed32
+  fixed32 vibe_fixed32 = 10;
+  // The details of the vibe fixed64
+  fixed64 vibe_fixed64 = 11;
+  // The details of the vibe sfixed32
+  sfixed32 vibe_sfixed32 = 12;
+  // The details of the vibe sfixed64
+  sfixed64 vibe_sfixed64 = 13;
+  // The details of the vibe bool
+  bool vibe_bool = 14;
+  // the details of the vibe bytes
+  bytes vibe_bytes = 15;
+
+  // The details of the vibe string
+  enum VibeEnum {
+    VIBE_UNSET = 0;
+    VIBE_GOOD = 1;
+  }
+
+  // The details of the vibe string
+  repeated VibeEnum vibe_enum = 16;
+}
+
+// The vibe array message
+message VibeArray {
+  // The details of the vibe double array
+  repeated double vibe_doubles = 2;
+  // the details of the vibe float array
+  repeated float vibe_floats = 3;
+  // The details of the vibe int32 array
+  repeated int32 vibe_int32s = 4;
+  // The details of the vibe int64 array
+  repeated int64 vibe_int64s = 5;
+  // The details of the vibe uint32 array
+  repeated uint32 vibe_uint32s = 6;
+  // The details of the vibe uint64 array
+  repeated uint64 vibe_uint64s = 7;
+  // The details of the vibe sint32 array
+  repeated sint32 vibe_sint32s = 8;
+  // The details of the vibe sint64 array
+  repeated sint64 vibe_sint64s = 9;
+  // The details of the vibe fixed32 array
+  repeated fixed32 vibe_fixed32s = 10;
+  // The details of the vibe fixed64 array
+  repeated fixed64 vibe_fixed64s = 11;
+  // The details of the vibe sfixed32 array
+  repeated sfixed32 vibe_sfixed32s = 12;
+  // The details of the vibe sfixed64 array
+  repeated sfixed64 vibe_sfixed64s = 13;
+  // The details of the vibe bool array
+  repeated bool vibe_bools = 14;
+  // the details of the vibe bytes array
+  repeated bytes vibe_byteses = 15;
+  // The details of the vibe scalar array
+}
+
+// The detailed vibe of the server
+message SetVibeDetailsRequest {
+  // The vibe of the string to be set
+  string vibe = 1;
+  // The details of the vibe
+  VibeScalar vibe_scalar = 2;
+}
+
+// The vibe object of the server
+message SomeVibeObject {
+  // The vibe of the server
+  string vibe = 1;
+}
+
+// The request to set multiple vibe objects on the server
+message SetVibeObjectsRequest {
+  // The details of the vibe
+  repeated SomeVibeObject vibe_object = 1;
+}
+
+// The response to set multiple vibe objects on the server
+message SetVibeObjectsResponse {
+  // The details of the vibe
+  repeated SomeVibeObject vibe_object = 1;
+}
+
+// This is a complex comment to test string processing.
+// It includes multiple lines with various characters:
+// * Special chars: "quotes", 'single-quotes', \backslashes\
+// * Symbols: @#$%^&*()_+-={}[]|;:<>,.?/
+// * Newlines and     multiple    spaces
+//
+// It also has empty lines and indentation:
+//   - Indented item 1
+//   - Indented item 2
+service VibeService {
+/*
+ * This is a block comment
+ * with multiple lines
+ * to test block handling
+ * "Hello World", a `backtick`, and a path like C:\vibes\new
+ */
+  rpc SetVibe(SetVibeRequest) returns (SetVibeResponse) {}
+  // Get Vibe
+  // of the server
+  //
+  rpc GetVibe(GetVibeRequest) returns (GetVibeResponse) {}
+  // Set vibe details
+  rpc SetVibeDetails(SetVibeDetailsRequest) returns (SetVibeResponse) {}
+  // Set the vibe arrays
+  rpc SetVibeArray(SetVibeArrayRequest) returns (SetVibeArrayResponse) {}
+
+  // Set multiple vibe objects
+  rpc SetVibeObjects(SetVibeObjectsRequest) returns (SetVibeObjectsResponse) {}
+}
