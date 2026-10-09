@@ -9,4 +9,5 @@ pub mod comments;
 pub mod generator;
 pub mod header;
 pub mod rust_literal;
+pub mod schema;
 pub mod source_info;

@@ -7,41 +7,21 @@
 
 use prost_types::FileDescriptorProto;
 use prost_types::compiler::CodeGeneratorRequest;
+use prost_types::compiler::CodeGeneratorResponse;
 use prost_types::compiler::code_generator_response::File;
 
-/// `protobuf/compiler/plugin.proto`'s `CodeGeneratorResponse`, extended with
-/// the `minimum_edition` and `maximum_edition` fields (tags 3 and 4) that
-/// `prost-types` 0.14 doesn't expose on its own `CodeGeneratorResponse`
-/// (it vendors an older copy of `plugin.proto`; confirmed still missing as
-/// of `prost-types` master on 2026-10-09). The wire format is unchanged, so
-/// this still round-trips through `protoc`.
-///
-/// If a future `prost-types` release adds these fields to its own
-/// `CodeGeneratorResponse`, drop this struct and use that one directly
-/// instead of keeping two types with overlapping tags in sync by hand.
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct CodeGeneratorResponse {
-    #[prost(string, optional, tag = "1")]
-    pub error: Option<String>,
-    #[prost(uint64, optional, tag = "2")]
-    pub supported_features: Option<u64>,
-    #[prost(int32, optional, tag = "3")]
-    pub minimum_edition: Option<i32>,
-    #[prost(int32, optional, tag = "4")]
-    pub maximum_edition: Option<i32>,
-    #[prost(message, repeated, tag = "15")]
-    pub file: Vec<File>,
-}
-
 /// `CodeGeneratorResponse::Feature` bitmask values
-/// (`protobuf/compiler/plugin.proto`).
+/// (`protobuf/compiler/plugin.proto`). This plugin does **not** advertise
+/// `FEATURE_SUPPORTS_EDITIONS`: `prost-reflect` 0.16.5 only builds
+/// `DescriptorPool`s for proto2/proto3 files (it panics on an `edition =
+/// "2023";` file's `FileDescriptorProto`, confirmed empirically against a
+/// real protoc 29.3 request, at `descriptor/error.rs:782`), and
+/// `protoc-gen-prost` 0.5.0 itself only advertises `PROTO3_OPTIONAL`, so this
+/// stack cannot generate editions code regardless. Leaving editions
+/// unadvertised makes `protoc` reject an editions input file with a clear
+/// error instead of this plugin panicking on it. This is a documented
+/// divergence from the Go plugin.
 const FEATURE_PROTO3_OPTIONAL: u64 = 1;
-const FEATURE_SUPPORTS_EDITIONS: u64 = 2;
-
-/// `Edition` enum values (`protobuf/descriptor.proto`) this plugin declares
-/// support for.
-const EDITION_PROTO2: i32 = 998;
-const EDITION_2023: i32 = 1000;
 
 /// Runs code generation against `request`, producing one generated file per
 /// `.proto` file in `file_to_generate` that declares a service (streaming
@@ -71,9 +51,7 @@ pub fn generate(request: &CodeGeneratorRequest) -> CodeGeneratorResponse {
 
     CodeGeneratorResponse {
         error: None,
-        supported_features: Some(FEATURE_PROTO3_OPTIONAL | FEATURE_SUPPORTS_EDITIONS),
-        minimum_edition: Some(EDITION_PROTO2),
-        maximum_edition: Some(EDITION_2023),
+        supported_features: Some(FEATURE_PROTO3_OPTIONAL),
         file,
     }
 }
@@ -98,7 +76,7 @@ mod tests {
     }
 
     #[test]
-    fn no_services_generates_no_files_and_sets_features_and_editions() {
+    fn no_services_generates_no_files_and_sets_features() {
         let request = CodeGeneratorRequest {
             file_to_generate: vec!["no_service.proto".to_string()],
             proto_file: vec![file("no_service.proto", vec![])],
@@ -108,12 +86,7 @@ mod tests {
         let response = generate(&request);
 
         assert!(response.file.is_empty());
-        assert_eq!(
-            response.supported_features,
-            Some(FEATURE_PROTO3_OPTIONAL | FEATURE_SUPPORTS_EDITIONS)
-        );
-        assert_eq!(response.minimum_edition, Some(EDITION_PROTO2));
-        assert_eq!(response.maximum_edition, Some(EDITION_2023));
+        assert_eq!(response.supported_features, Some(FEATURE_PROTO3_OPTIONAL));
         assert_eq!(response.error, None);
     }
 
@@ -122,9 +95,6 @@ mod tests {
         let request = CodeGeneratorRequest::default();
         let response = generate(&request);
         assert!(response.file.is_empty());
-        assert_eq!(
-            response.supported_features,
-            Some(FEATURE_PROTO3_OPTIONAL | FEATURE_SUPPORTS_EDITIONS)
-        );
+        assert_eq!(response.supported_features, Some(FEATURE_PROTO3_OPTIONAL));
     }
 }
