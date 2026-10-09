@@ -12,6 +12,15 @@
 //! `Any` or `FieldMask` the way `protojson` does, and instead encodes both
 //! as the plain message they are on the wire.
 //!
+//! A third, narrower difference (documented on [`float_schema`]) is in
+//! float/double **output**, not input: pbjson serializes non-finite values
+//! as JSON `null` rather than the `"NaN"`/`"Infinity"`/`"-Infinity"` strings
+//! `protojson` emits. The schema describes tool *input*, and both pbjson and
+//! protojson accept those three strings on deserialization, so the schema
+//! itself does not need to change for this one; it is called out because a
+//! client reading a float back out of a tool result should not expect those
+//! strings.
+//!
 //! # Design decisions (same as Go, deliberately stricter than every input
 //! the generated serde actually tolerates, to keep the schema clear for LLM
 //! clients generating arguments from it)
@@ -360,13 +369,24 @@ fn ref_schema(full_name: &str) -> Value {
 }
 
 /// Returns the schema for a proto `float`, `double`, `FloatValue` or
-/// `DoubleValue` field. `serde_json` (like `encoding/json` in Go) encodes
-/// NaN and +/-Infinity as JSON `null`, which cannot be distinguished from
-/// absence; the generated serde instead follows the protobuf JSON mapping
-/// and emits them as the strings `"NaN"`, `"Infinity"` and `"-Infinity"` (a
-/// plain JSON number cannot represent them), so the schema must accept
-/// both a JSON number and one of those three strings to describe exactly
-/// what the generated serde produces/accepts.
+/// `DoubleValue` field.
+///
+/// This describes *input*: the pbjson-generated deserializer accepts a
+/// plain JSON number, or one of the strings `"NaN"`, `"Infinity"` and
+/// `"-Infinity"` (a plain JSON number cannot represent those three values),
+/// matching the protobuf JSON mapping that `protojson` also implements for
+/// decoding. Both are accepted, so the schema is `anyOf` the two.
+///
+/// **pbjson/protojson difference (output, not input):** on the way back
+/// out, pbjson's generated `Serialize` does *not* follow that mapping: like
+/// plain `serde_json`/Go's `encoding/json`, it encodes NaN and +/-Infinity
+/// as JSON `null` (confirmed empirically: `AllScalars{s_double: NaN,
+/// s_float: INFINITY}` serializes to `{"sFloat":null,"sDouble":null}`),
+/// which is indistinguishable from the field being absent. `protojson`
+/// instead emits the three strings this schema also accepts. This does not
+/// change the schema above (it describes input, where both accept the
+/// strings), but a client reading a non-finite float out of a tool *result*
+/// will see `null`, not one of those strings.
 fn float_schema() -> Value {
     json!({
         "anyOf": [
@@ -663,6 +683,16 @@ mod tests {
         let defs = schema["$defs"]
             .as_object()
             .expect("$defs should be present");
+        // Only schemapb.Node is part of a reference cycle; every other
+        // message type (e.g. Inner, reached through both "inner" and the
+        // "namedInners" map) must be inlined at each occurrence rather than
+        // kept in $defs, per the module doc's "other message types are
+        // inlined... even when referenced more than once".
+        assert_eq!(
+            defs.keys().collect::<Vec<_>>(),
+            vec!["schemapb.Node"],
+            "$defs should contain only the recursive Node message, not every referenced message"
+        );
         let node_schema = defs
             .get("schemapb.Node")
             .expect("$defs should contain the Node schema");
@@ -689,13 +719,24 @@ mod tests {
             json!({"type": "string", "description": "A proto3 optional field: never required."})
         );
 
-        // oneof fields are normal properties with a mention of the oneof
-        let email = &properties["email"];
-        assert_eq!(email["type"], json!("string"));
-        assert!(email["description"].as_str().unwrap().contains("contact"));
-        let phone = &properties["phone"];
-        assert_eq!(phone["type"], json!("string"));
-        assert!(phone["description"].as_str().unwrap().contains("contact"));
+        // oneof fields are normal properties with the exact "part of
+        // oneof" note text appended to their own description.
+        const CONTACT_ONEOF_NOTE: &str =
+            "Part of the \"contact\" oneof: at most one of its fields may be set.";
+        assert_eq!(
+            properties["email"],
+            json!({
+                "type": "string",
+                "description": format!("Email address. {CONTACT_ONEOF_NOTE}"),
+            })
+        );
+        assert_eq!(
+            properties["phone"],
+            json!({
+                "type": "string",
+                "description": format!("Phone number. {CONTACT_ONEOF_NOTE}"),
+            })
+        );
 
         let wkt_cases: &[(&str, Value)] = &[
             (
@@ -778,18 +819,50 @@ mod tests {
         );
     }
 
+    /// Checks that the special `"NaN"`/`"Infinity"`/`"-Infinity"` string
+    /// encodings for float/double actually round-trip through the
+    /// pbjson-generated deserializer (not just the schema in isolation),
+    /// for a plain `float`/`double` field (`AllScalars`) and for the
+    /// `FloatValue`/`DoubleValue` wrappers (`SchemaTestMessage`), then
+    /// validates the resulting JSON against each message's generated
+    /// schema. The counterpart of Go's `TestSchemaValidatesNonFiniteFloats`.
     #[test]
     fn schema_validates_non_finite_floats() {
-        let schema = float_schema();
-        let resolved = jsonschema::validator_for(&schema).expect("valid schema");
+        let scalars_msg = load_message("AllScalars");
+        let scalars_schema = message_input_schema(&scalars_msg);
+        let scalars_validator = jsonschema::validator_for(&scalars_schema).expect("valid schema");
+
+        let test_msg = load_message("SchemaTestMessage");
+        let test_schema = message_input_schema(&test_msg);
+        let test_validator = jsonschema::validator_for(&test_schema).expect("valid schema");
+
         for s in ["NaN", "Infinity", "-Infinity"] {
+            let scalars_json = json!({"sFloat": s, "sDouble": s});
+            let scalars: schemapb::AllScalars = serde_json::from_value(scalars_json.clone())
+                .unwrap_or_else(|e| {
+                    panic!("pbjson should deserialize {s:?} for a plain float/double field: {e}")
+                });
+            assert!(scalars.s_float.is_nan() || scalars.s_float.is_infinite());
+            assert!(scalars.s_double.is_nan() || scalars.s_double.is_infinite());
             assert!(
-                resolved.is_valid(&json!(s)),
-                "float schema should accept {s:?}"
+                scalars_validator.is_valid(&scalars_json),
+                "AllScalars schema should accept {s:?} for sFloat/sDouble"
+            );
+
+            let wrapper_json = json!({"scoreWrapper": s, "ratioWrapper": s});
+            let wrappers: schemapb::SchemaTestMessage =
+                serde_json::from_value(wrapper_json.clone()).unwrap_or_else(|e| {
+                    panic!(
+                        "pbjson should deserialize {s:?} for a DoubleValue/FloatValue wrapper: {e}"
+                    )
+                });
+            assert!(wrappers.score_wrapper.is_some());
+            assert!(wrappers.ratio_wrapper.is_some());
+            assert!(
+                test_validator.is_valid(&wrapper_json),
+                "SchemaTestMessage schema should accept {s:?} for scoreWrapper/ratioWrapper"
             );
         }
-        assert!(resolved.is_valid(&json!(1.5)));
-        assert!(!resolved.is_valid(&json!("not a number")));
     }
 
     #[test]
@@ -1085,5 +1158,22 @@ mod tests {
                 serde_json::from_str(go_schema_json).expect("parsing Go's expected schema JSON");
             assert_eq!(&got, &want, "schema for examples.v1.{message_name}");
         }
+
+        // The comparisons above parse both sides into `serde_json::Value`,
+        // which is only meaningful because this module builds schemas
+        // without the `preserve_order` feature (see the module doc
+        // comment): keys sort, so two schemas with the same keys and
+        // values always compare equal regardless of insertion order. Pin
+        // one case's *serialized* string too, so a future workspace-wide
+        // enabling of `preserve_order` (#6 embeds this schema as tool
+        // input schema text, not just a `Value`) that reintroduces
+        // nondeterministic key order is caught here rather than silently
+        // producing a tool schema whose key order differs run to run.
+        let get_vibe_schema = message_input_schema(&load_example_message("GetVibeRequest"));
+        assert_eq!(
+            serde_json::to_string(&get_vibe_schema).unwrap(),
+            r#"{"additionalProperties":false,"description":"The request to get the vibe of the server","properties":{},"type":"object"}"#,
+            "serialized schema key order should be sorted/deterministic"
+        );
     }
 }

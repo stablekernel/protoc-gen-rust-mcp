@@ -29,7 +29,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     config.extern_path(".google.protobuf", "::pbjson_types");
     config.compile_fds(fds.clone())?;
 
-    let out_dir = PathBuf::from(std::env::var("OUT_DIR")?);
     let descriptor_bytes = {
         use protox::prost::Message;
         fds.encode_to_vec()
@@ -41,6 +40,5 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // pbjson_build::Builder::build writes <package>.serde.rs next to
     // prost-build's own output in OUT_DIR; nothing further to do here.
-    let _ = out_dir;
     Ok(())
 }
