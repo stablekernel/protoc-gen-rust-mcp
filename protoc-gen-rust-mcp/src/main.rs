@@ -13,8 +13,7 @@ use std::process::ExitCode;
 use prost::Message;
 use prost_types::compiler::CodeGeneratorRequest;
 
-mod generator;
-mod schema;
+use protoc_gen_rust_mcp::generator;
 
 fn main() -> ExitCode {
     let mut args = std::env::args().skip(1);

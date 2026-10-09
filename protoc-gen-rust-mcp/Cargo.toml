@@ -7,6 +7,10 @@ repository.workspace = true
 description = "A protoc plugin that generates an MCP server from a gRPC service definition."
 publish = false
 
+[lib]
+name = "protoc_gen_rust_mcp"
+path = "src/lib.rs"
+
 [[bin]]
 name = "protoc-gen-rust-mcp"
 path = "src/main.rs"
@@ -19,11 +23,12 @@ serde_json = "1"
 
 [dev-dependencies]
 jsonschema = { version = "0.58", default-features = false }
-protox = "0.10"
+protox = "0.10.0"
 rand = "0.10"
 pbjson = "0.8"
 pbjson-types = "0.8"
 serde = { version = "1", features = ["derive"] }
+syn = { version = "3", features = ["parsing"] }
 
 [build-dependencies]
 # Used only by build.rs, to compile tests/testdata/schemapb/schema.proto into
