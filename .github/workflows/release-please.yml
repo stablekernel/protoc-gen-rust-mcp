@@ -17,6 +17,7 @@ permissions:
 jobs:
   release-please:
     runs-on: ubuntu-latest
+    environment: release
     steps:
       # Like Go's release-please.yml: a bot PAT so the release PR and the
       # tag/release it creates trigger downstream Actions runs (events from
@@ -28,7 +29,7 @@ jobs:
           BOT_TOKEN_SET: ${{ secrets.TOKEN_BOT_GITHUB_TOKEN != '' }}
         run: |
           if [ "${BOT_TOKEN_SET}" != "true" ]; then
-            echo "::error::TOKEN_BOT_GITHUB_TOKEN secret is not set. See the repository settings or ask a maintainer to add it (see issue #12)." >&2
+            echo "::error::TOKEN_BOT_GITHUB_TOKEN secret is not set in the 'release' environment. See the repository's environment settings or ask a maintainer to add it (see issue #12)." >&2
             exit 1
           fi
 
