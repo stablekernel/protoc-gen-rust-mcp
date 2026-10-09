@@ -24,6 +24,7 @@ heck = "0.5"
 
 [dev-dependencies]
 jsonschema = { version = "0.58", default-features = false }
+pretty_assertions = "1.4"
 protox = "0.10.0"
 rand = "0.10"
 pbjson = "0.8"
