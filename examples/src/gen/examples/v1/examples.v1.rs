@@ -202,5 +202,3 @@ include!("examples.v1.tonic.rs");
 include!("examples.v1.serde.rs");
 include!("examples.v1.mcp.rs");
 // @@protoc_insertion_point(module)
-
-// hand-edit to demonstrate CI drift detection (issue #11)
