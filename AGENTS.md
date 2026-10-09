@@ -49,9 +49,19 @@ make generate   # needs protoc 29.3, protoc-gen-prost 0.5.0, protoc-gen-tonic 0.
 git status      # the regenerated files belong in the same PR
 ```
 
-Once the golden-file test exists, update it with
-`UPDATE_GOLDEN=1 cargo test -p protoc-gen-rust-mcp golden` and review the diff;
-an unexpected change in generated code is a bug until explained.
+`cargo test` includes a golden-file test
+(`protoc-gen-rust-mcp/tests/golden.rs`) that compiles `example.proto` itself
+(with [`protox`](https://crates.io/crates/protox), so it needs neither
+`protoc` nor the two commands above) and compares the generator's output
+byte for byte with the committed `examples.v1.mcp.rs`. If a change to the
+generator changes that output on purpose, update the golden file with:
+
+```sh
+UPDATE_GOLDEN=1 cargo test -p protoc-gen-rust-mcp golden
+```
+
+and review the diff; an unexpected change in generated code is a bug until
+explained.
 
 ## Conventions
 
