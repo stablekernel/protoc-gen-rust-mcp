@@ -57,6 +57,9 @@ use std::collections::{BTreeSet, HashMap};
 use prost_reflect::{Cardinality, FieldDescriptor, Kind, MessageDescriptor};
 use serde_json::{Map, Value, json};
 
+use crate::comments::process_comment_to_string;
+use crate::source_info::leading_comments;
+
 /// Full names of the well-known proto message types that get special JSON
 /// Schema treatment because the generated serde encodes/decodes them
 /// differently from an ordinary message with the same fields.
@@ -185,8 +188,8 @@ impl SchemaBuilder {
         schema.insert("type".to_string(), json!("object"));
         schema.insert("properties".to_string(), Value::Object(properties));
         schema.insert("additionalProperties".to_string(), json!(false));
-        if let Some(desc) = leading_comment(message.path(), message.parent_file_descriptor_proto())
-        {
+        let desc = leading_comment(message.path(), message.parent_file_descriptor_proto());
+        if !desc.is_empty() {
             schema.insert("description".to_string(), json!(desc));
         }
         let schema = Value::Object(schema);
@@ -217,8 +220,7 @@ impl SchemaBuilder {
         let mut desc = leading_comment(
             field.path(),
             field.parent_message().parent_file_descriptor_proto(),
-        )
-        .unwrap_or_default();
+        );
         if let Some(oneof) = field.containing_oneof()
             && !oneof.is_synthetic()
         {
@@ -309,8 +311,8 @@ fn enum_schema(enum_desc: &prost_reflect::EnumDescriptor) -> Value {
     let mut schema = Map::new();
     schema.insert("type".to_string(), json!("string"));
     schema.insert("enum".to_string(), Value::Array(values));
-    if let Some(desc) = leading_comment(enum_desc.path(), enum_desc.parent_file_descriptor_proto())
-    {
+    let desc = leading_comment(enum_desc.path(), enum_desc.parent_file_descriptor_proto());
+    if !desc.is_empty() {
         schema.insert("description".to_string(), json!(desc));
     }
     Value::Object(schema)
@@ -423,56 +425,14 @@ fn any_schema() -> Value {
 }
 
 /// Turns a leading proto comment at `path` within `file` into a one-line
-/// description, or `None` if there is no comment. A thin wrapper around a
-/// linear scan of `file`'s `SourceCodeInfo.location` list: the comment
-/// helpers from issue #4 (`cmd/protoc-gen-go-mcp/mcp.go`'s
-/// `processCommentToString`) will replace the inline cleanup below once
-/// that issue lands; until then this applies the same whitespace rules so
-/// descriptions match Go's output.
-fn leading_comment(path: &[i32], file: &prost_types::FileDescriptorProto) -> Option<String> {
-    let location = file
-        .source_code_info
-        .as_ref()?
-        .location
-        .iter()
-        .find(|loc| loc.path == path)?;
-    let raw = location.leading_comments.as_deref()?;
-    Some(process_comment_to_string(raw))
-}
-
-/// Turns a raw leading proto comment into a single-line string: strips
-/// block-comment markers and per-line `"// "` prefixes, joins the result
-/// with spaces, and collapses whitespace runs into one space. Ported from
-/// Go's `processCommentToString` (`cmd/protoc-gen-go-mcp/mcp.go`); see
-/// issue #4, which will supersede this with a shared helper.
-fn process_comment_to_string(raw: &str) -> String {
-    let trimmed = raw
-        .strip_prefix("/* ")
-        .map(|s| s.strip_suffix(" */").unwrap_or(s))
-        .unwrap_or(raw);
-
-    let joined = trimmed
-        .split('\n')
-        .map(|line| line.strip_prefix("// ").unwrap_or(line))
-        .collect::<Vec<_>>()
-        .join(" ");
-
-    let joined = joined.trim();
-
-    let mut result = String::with_capacity(joined.len());
-    let mut last_was_space = false;
-    for c in joined.chars() {
-        if c.is_whitespace() {
-            if !last_was_space {
-                result.push(' ');
-            }
-            last_was_space = true;
-        } else {
-            result.push(c);
-            last_was_space = false;
-        }
-    }
-    result
+/// description, or `""` if there is no comment. A thin wrapper combining
+/// [`crate::source_info::leading_comments`] (the `SourceCodeInfo.location`
+/// lookup by path) with [`crate::comments::process_comment_to_string`] (the
+/// whitespace/marker cleanup), the same two shared helpers #4 introduced for
+/// tool and field descriptions elsewhere in the generator.
+fn leading_comment(path: &[i32], file: &prost_types::FileDescriptorProto) -> String {
+    let raw = leading_comments(file.source_code_info.as_ref(), path);
+    process_comment_to_string(raw)
 }
 
 /// The pbjson-generated Rust types for `tests/testdata/schemapb/schema.proto`
