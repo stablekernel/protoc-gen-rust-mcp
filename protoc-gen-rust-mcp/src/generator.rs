@@ -22,8 +22,10 @@ use prost_reflect::DescriptorPool;
 use prost_types::FileDescriptorProto;
 use prost_types::compiler::CodeGeneratorRequest;
 use prost_types::compiler::CodeGeneratorResponse;
+use prost_types::compiler::Version;
 use prost_types::compiler::code_generator_response::File;
 
+use crate::header::file_header;
 use crate::server;
 
 /// `CodeGeneratorResponse::Feature` bitmask values
@@ -89,7 +91,11 @@ pub fn generate(request: &CodeGeneratorRequest) -> CodeGeneratorResponse {
 
     let mut file = Vec::new();
     for package in &packages {
-        file.extend(generate_package(&pool, package));
+        file.extend(generate_package(
+            &pool,
+            package,
+            request.compiler_version.as_ref(),
+        ));
     }
 
     CodeGeneratorResponse {
@@ -106,7 +112,11 @@ pub fn generate(request: &CodeGeneratorRequest) -> CodeGeneratorResponse {
 /// no services (shouldn't happen: callers only pass packages whose files
 /// matched `!f.service.is_empty()`, but a package can in principle split
 /// its services across sibling files).
-fn generate_package(pool: &DescriptorPool, package: &str) -> Vec<File> {
+fn generate_package(
+    pool: &DescriptorPool,
+    package: &str,
+    compiler_version: Option<&Version>,
+) -> Vec<File> {
     let services: Vec<_> = pool
         .services()
         .filter(|s| s.package_name() == package)
@@ -123,7 +133,11 @@ fn generate_package(pool: &DescriptorPool, package: &str) -> Vec<File> {
     let mcp_filename = format!("{package}.mcp.rs");
     let main_filename = format!("{package}.rs");
 
-    let mut content = String::from("// @generated\n");
+    // Starts with the same DO-NOT-EDIT banner and versions block every
+    // other generated file in this crate starts with (#4's `file_header`),
+    // the counterpart of Go's `example_mcp.pb.go` header.
+    let mut content = file_header(env!("CARGO_PKG_VERSION"), compiler_version).join("\n");
+    content.push_str("\n\n");
     for (i, service) in services.iter().enumerate() {
         if i > 0 {
             content.push('\n');

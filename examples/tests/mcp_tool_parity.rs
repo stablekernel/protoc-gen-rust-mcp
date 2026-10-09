@@ -1,12 +1,16 @@
 //! **Parity:** after `register_default_tools()`, `VibeServiceMcpServer`'s
 //! five tools (names, descriptions, input schemas) are JSON-equal to the
 //! five tools Go's committed `examples/gen/example/v1/example_mcp.pb.go`
-//! (`stablekernel/protoc-gen-go-mcp` `9e072f9`) registers, in the same
-//! order. The expected values are copied verbatim from that file (see
+//! (`stablekernel/protoc-gen-go-mcp` `9e072f9`) registers. The expected
+//! values are copied verbatim from that file (see
 //! `protoc-gen-rust-mcp/src/schema.rs`'s
 //! `parity_with_go_example_input_schemas` test, which pins the same input
 //! schemas against the schema-builder in isolation; this test instead
-//! checks the real generated `examples.v1.mcp.rs` end to end).
+//! checks the real generated `examples.v1.mcp.rs` end to end). Tool
+//! *registration order* is deliberately not checked: this generator keeps
+//! tools in a `BTreeMap` (alphabetical by name), unlike Go's
+//! insertion-ordered slice, and MCP's `tools/list` does not make ordering
+//! part of its contract.
 
 use examples::v1::VibeServiceMcpServer;
 use examples::v1::vibe_service_client::VibeServiceClient;
