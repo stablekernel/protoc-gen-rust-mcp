@@ -14,6 +14,12 @@ static VIBE_SERVICE_SET_VIBE_INPUT_SCHEMA: ::std::sync::LazyLock<::std::sync::Ar
         )
     });
 
+static VIBE_SERVICE_SET_VIBE_VALIDATOR: ::std::sync::LazyLock<::jsonschema::Validator> =
+    ::std::sync::LazyLock::new(|| {
+        ::jsonschema::validator_for(&::serde_json::Value::Object(VIBE_SERVICE_SET_VIBE_INPUT_SCHEMA.as_ref().clone()))
+            .unwrap_or_else(|e| panic!("compiling generated input schema: {e}"))
+    });
+
 static VIBE_SERVICE_GET_VIBE_INPUT_SCHEMA: ::std::sync::LazyLock<::std::sync::Arc<::rmcp::model::JsonObject>> =
     ::std::sync::LazyLock::new(|| {
         ::std::sync::Arc::new(
@@ -23,6 +29,12 @@ static VIBE_SERVICE_GET_VIBE_INPUT_SCHEMA: ::std::sync::LazyLock<::std::sync::Ar
                 Err(e) => panic!("parsing generated input schema: {e}"),
             },
         )
+    });
+
+static VIBE_SERVICE_GET_VIBE_VALIDATOR: ::std::sync::LazyLock<::jsonschema::Validator> =
+    ::std::sync::LazyLock::new(|| {
+        ::jsonschema::validator_for(&::serde_json::Value::Object(VIBE_SERVICE_GET_VIBE_INPUT_SCHEMA.as_ref().clone()))
+            .unwrap_or_else(|e| panic!("compiling generated input schema: {e}"))
     });
 
 static VIBE_SERVICE_SET_VIBE_DETAILS_INPUT_SCHEMA: ::std::sync::LazyLock<::std::sync::Arc<::rmcp::model::JsonObject>> =
@@ -36,6 +48,12 @@ static VIBE_SERVICE_SET_VIBE_DETAILS_INPUT_SCHEMA: ::std::sync::LazyLock<::std::
         )
     });
 
+static VIBE_SERVICE_SET_VIBE_DETAILS_VALIDATOR: ::std::sync::LazyLock<::jsonschema::Validator> =
+    ::std::sync::LazyLock::new(|| {
+        ::jsonschema::validator_for(&::serde_json::Value::Object(VIBE_SERVICE_SET_VIBE_DETAILS_INPUT_SCHEMA.as_ref().clone()))
+            .unwrap_or_else(|e| panic!("compiling generated input schema: {e}"))
+    });
+
 static VIBE_SERVICE_SET_VIBE_ARRAY_INPUT_SCHEMA: ::std::sync::LazyLock<::std::sync::Arc<::rmcp::model::JsonObject>> =
     ::std::sync::LazyLock::new(|| {
         ::std::sync::Arc::new(
@@ -47,6 +65,12 @@ static VIBE_SERVICE_SET_VIBE_ARRAY_INPUT_SCHEMA: ::std::sync::LazyLock<::std::sy
         )
     });
 
+static VIBE_SERVICE_SET_VIBE_ARRAY_VALIDATOR: ::std::sync::LazyLock<::jsonschema::Validator> =
+    ::std::sync::LazyLock::new(|| {
+        ::jsonschema::validator_for(&::serde_json::Value::Object(VIBE_SERVICE_SET_VIBE_ARRAY_INPUT_SCHEMA.as_ref().clone()))
+            .unwrap_or_else(|e| panic!("compiling generated input schema: {e}"))
+    });
+
 static VIBE_SERVICE_SET_VIBE_OBJECTS_INPUT_SCHEMA: ::std::sync::LazyLock<::std::sync::Arc<::rmcp::model::JsonObject>> =
     ::std::sync::LazyLock::new(|| {
         ::std::sync::Arc::new(
@@ -56,6 +80,12 @@ static VIBE_SERVICE_SET_VIBE_OBJECTS_INPUT_SCHEMA: ::std::sync::LazyLock<::std::
                 Err(e) => panic!("parsing generated input schema: {e}"),
             },
         )
+    });
+
+static VIBE_SERVICE_SET_VIBE_OBJECTS_VALIDATOR: ::std::sync::LazyLock<::jsonschema::Validator> =
+    ::std::sync::LazyLock::new(|| {
+        ::jsonschema::validator_for(&::serde_json::Value::Object(VIBE_SERVICE_SET_VIBE_OBJECTS_INPUT_SCHEMA.as_ref().clone()))
+            .unwrap_or_else(|e| panic!("compiling generated input schema: {e}"))
     });
 
 /// A registered tool's handler: takes the raw tool call arguments
@@ -86,7 +116,11 @@ pub struct VibeServiceMcpServer<T> {
 
 impl<T> VibeServiceMcpServer<T>
 where
-    T: ::std::clone::Clone + ::std::marker::Send + ::std::marker::Sync + 'static,
+    T: ::tonic::client::GrpcService<::tonic::body::Body> + ::std::clone::Clone + ::std::marker::Send + ::std::marker::Sync + 'static,
+    T::Error: ::std::convert::Into<::tonic::codegen::StdError>,
+    T::ResponseBody: ::tonic::codegen::Body<Data = ::tonic::codegen::Bytes> + ::std::marker::Send + 'static,
+    <T::ResponseBody as ::tonic::codegen::Body>::Error: ::std::convert::Into<::tonic::codegen::StdError> + ::std::marker::Send,
+    T::Future: ::std::marker::Send,
 {
     /// Creates a new `VibeServiceMcpServer` with no tools registered yet; call
     /// [`register_default_tools`](Self::register_default_tools) or
@@ -111,20 +145,47 @@ where
         ::rmcp::model::Tool::new(r"SetVibe", r#"This is a block comment with multiple lines to test block handling "Hello World", a `backtick`, and a path like C:\vibes\new"#, VIBE_SERVICE_SET_VIBE_INPUT_SCHEMA.clone())
     }
 
-    /// Stub handler for `SetVibe`: always returns a "not
-    /// implemented" tool error. A later generator issue (#7) replaces
-    /// this with argument validation, pbjson decoding, the `SetVibe`
-    /// tonic call, and a pbjson-encoded response.
+    /// Validates, decodes, calls the backend for, and encodes the
+    /// response of, a `SetVibe` tool call: see this module's doc
+    /// comment for the exact steps.
     async fn call_set_vibe(
-        _client: vibe_service_client::VibeServiceClient<T>,
-        _args: ::std::option::Option<::rmcp::model::JsonObject>,
+        mut client: vibe_service_client::VibeServiceClient<T>,
+        args: ::std::option::Option<::rmcp::model::JsonObject>,
     ) -> ::rmcp::model::CallToolResult {
-        ::rmcp::model::CallToolResult::error(vec![::rmcp::model::ContentBlock::text(
-            "SetVibe is not implemented",
-        )])
+        let args = ::serde_json::Value::Object(args.unwrap_or_default());
+        let errors: ::std::vec::Vec<::std::string::String> = VIBE_SERVICE_SET_VIBE_VALIDATOR
+            .iter_errors(&args)
+            .map(|e| ::std::format!("{}: {e}", e.instance_path()))
+            .collect();
+        if !errors.is_empty() {
+            return ::rmcp::model::CallToolResult::error(vec![::rmcp::model::ContentBlock::text(
+                ::std::format!("invalid arguments: {}", errors.join("; ")),
+            )]);
+        }
+        let request: SetVibeRequest = match ::serde_json::from_value(args) {
+            Ok(r) => r,
+            Err(e) => {
+                return ::rmcp::model::CallToolResult::error(vec![::rmcp::model::ContentBlock::text(
+                    ::std::format!("decoding arguments: {e}"),
+                )]);
+            }
+        };
+        match client.set_vibe(::tonic::Request::new(request)).await {
+            Ok(response) => match ::serde_json::to_string(response.get_ref()) {
+                Ok(json) => ::rmcp::model::CallToolResult::success(vec![::rmcp::model::ContentBlock::text(json)]),
+                Err(e) => ::rmcp::model::CallToolResult::error(vec![::rmcp::model::ContentBlock::text(
+                    ::std::format!("encoding response: {e}"),
+                )]),
+            },
+            // grpc-go's Status.Error() format, which Go's generated server
+            // returns verbatim as the tool error text.
+            Err(status) => ::rmcp::model::CallToolResult::error(vec![::rmcp::model::ContentBlock::text(
+                ::std::format!("rpc error: code = {:?} desc = {}", status.code(), status.message()),
+            )]),
+        }
     }
 
-    /// Calls the stub handler for `SetVibe` with a clone of this
+    /// Calls the handler for `SetVibe` with a clone of this
     /// server's client. Exported so a caller can wrap it, e.g. an
     /// overriding tool (via [`register_tool`](Self::register_tool)) that
     /// pre-processes arguments and then delegates here.
@@ -140,20 +201,47 @@ where
         ::rmcp::model::Tool::new(r"GetVibe", r"Get Vibe of the server", VIBE_SERVICE_GET_VIBE_INPUT_SCHEMA.clone())
     }
 
-    /// Stub handler for `GetVibe`: always returns a "not
-    /// implemented" tool error. A later generator issue (#7) replaces
-    /// this with argument validation, pbjson decoding, the `GetVibe`
-    /// tonic call, and a pbjson-encoded response.
+    /// Validates, decodes, calls the backend for, and encodes the
+    /// response of, a `GetVibe` tool call: see this module's doc
+    /// comment for the exact steps.
     async fn call_get_vibe(
-        _client: vibe_service_client::VibeServiceClient<T>,
-        _args: ::std::option::Option<::rmcp::model::JsonObject>,
+        mut client: vibe_service_client::VibeServiceClient<T>,
+        args: ::std::option::Option<::rmcp::model::JsonObject>,
     ) -> ::rmcp::model::CallToolResult {
-        ::rmcp::model::CallToolResult::error(vec![::rmcp::model::ContentBlock::text(
-            "GetVibe is not implemented",
-        )])
+        let args = ::serde_json::Value::Object(args.unwrap_or_default());
+        let errors: ::std::vec::Vec<::std::string::String> = VIBE_SERVICE_GET_VIBE_VALIDATOR
+            .iter_errors(&args)
+            .map(|e| ::std::format!("{}: {e}", e.instance_path()))
+            .collect();
+        if !errors.is_empty() {
+            return ::rmcp::model::CallToolResult::error(vec![::rmcp::model::ContentBlock::text(
+                ::std::format!("invalid arguments: {}", errors.join("; ")),
+            )]);
+        }
+        let request: GetVibeRequest = match ::serde_json::from_value(args) {
+            Ok(r) => r,
+            Err(e) => {
+                return ::rmcp::model::CallToolResult::error(vec![::rmcp::model::ContentBlock::text(
+                    ::std::format!("decoding arguments: {e}"),
+                )]);
+            }
+        };
+        match client.get_vibe(::tonic::Request::new(request)).await {
+            Ok(response) => match ::serde_json::to_string(response.get_ref()) {
+                Ok(json) => ::rmcp::model::CallToolResult::success(vec![::rmcp::model::ContentBlock::text(json)]),
+                Err(e) => ::rmcp::model::CallToolResult::error(vec![::rmcp::model::ContentBlock::text(
+                    ::std::format!("encoding response: {e}"),
+                )]),
+            },
+            // grpc-go's Status.Error() format, which Go's generated server
+            // returns verbatim as the tool error text.
+            Err(status) => ::rmcp::model::CallToolResult::error(vec![::rmcp::model::ContentBlock::text(
+                ::std::format!("rpc error: code = {:?} desc = {}", status.code(), status.message()),
+            )]),
+        }
     }
 
-    /// Calls the stub handler for `GetVibe` with a clone of this
+    /// Calls the handler for `GetVibe` with a clone of this
     /// server's client. Exported so a caller can wrap it, e.g. an
     /// overriding tool (via [`register_tool`](Self::register_tool)) that
     /// pre-processes arguments and then delegates here.
@@ -169,20 +257,47 @@ where
         ::rmcp::model::Tool::new(r"SetVibeDetails", r"Set vibe details", VIBE_SERVICE_SET_VIBE_DETAILS_INPUT_SCHEMA.clone())
     }
 
-    /// Stub handler for `SetVibeDetails`: always returns a "not
-    /// implemented" tool error. A later generator issue (#7) replaces
-    /// this with argument validation, pbjson decoding, the `SetVibeDetails`
-    /// tonic call, and a pbjson-encoded response.
+    /// Validates, decodes, calls the backend for, and encodes the
+    /// response of, a `SetVibeDetails` tool call: see this module's doc
+    /// comment for the exact steps.
     async fn call_set_vibe_details(
-        _client: vibe_service_client::VibeServiceClient<T>,
-        _args: ::std::option::Option<::rmcp::model::JsonObject>,
+        mut client: vibe_service_client::VibeServiceClient<T>,
+        args: ::std::option::Option<::rmcp::model::JsonObject>,
     ) -> ::rmcp::model::CallToolResult {
-        ::rmcp::model::CallToolResult::error(vec![::rmcp::model::ContentBlock::text(
-            "SetVibeDetails is not implemented",
-        )])
+        let args = ::serde_json::Value::Object(args.unwrap_or_default());
+        let errors: ::std::vec::Vec<::std::string::String> = VIBE_SERVICE_SET_VIBE_DETAILS_VALIDATOR
+            .iter_errors(&args)
+            .map(|e| ::std::format!("{}: {e}", e.instance_path()))
+            .collect();
+        if !errors.is_empty() {
+            return ::rmcp::model::CallToolResult::error(vec![::rmcp::model::ContentBlock::text(
+                ::std::format!("invalid arguments: {}", errors.join("; ")),
+            )]);
+        }
+        let request: SetVibeDetailsRequest = match ::serde_json::from_value(args) {
+            Ok(r) => r,
+            Err(e) => {
+                return ::rmcp::model::CallToolResult::error(vec![::rmcp::model::ContentBlock::text(
+                    ::std::format!("decoding arguments: {e}"),
+                )]);
+            }
+        };
+        match client.set_vibe_details(::tonic::Request::new(request)).await {
+            Ok(response) => match ::serde_json::to_string(response.get_ref()) {
+                Ok(json) => ::rmcp::model::CallToolResult::success(vec![::rmcp::model::ContentBlock::text(json)]),
+                Err(e) => ::rmcp::model::CallToolResult::error(vec![::rmcp::model::ContentBlock::text(
+                    ::std::format!("encoding response: {e}"),
+                )]),
+            },
+            // grpc-go's Status.Error() format, which Go's generated server
+            // returns verbatim as the tool error text.
+            Err(status) => ::rmcp::model::CallToolResult::error(vec![::rmcp::model::ContentBlock::text(
+                ::std::format!("rpc error: code = {:?} desc = {}", status.code(), status.message()),
+            )]),
+        }
     }
 
-    /// Calls the stub handler for `SetVibeDetails` with a clone of this
+    /// Calls the handler for `SetVibeDetails` with a clone of this
     /// server's client. Exported so a caller can wrap it, e.g. an
     /// overriding tool (via [`register_tool`](Self::register_tool)) that
     /// pre-processes arguments and then delegates here.
@@ -198,20 +313,47 @@ where
         ::rmcp::model::Tool::new(r"SetVibeArray", r"Set the vibe arrays", VIBE_SERVICE_SET_VIBE_ARRAY_INPUT_SCHEMA.clone())
     }
 
-    /// Stub handler for `SetVibeArray`: always returns a "not
-    /// implemented" tool error. A later generator issue (#7) replaces
-    /// this with argument validation, pbjson decoding, the `SetVibeArray`
-    /// tonic call, and a pbjson-encoded response.
+    /// Validates, decodes, calls the backend for, and encodes the
+    /// response of, a `SetVibeArray` tool call: see this module's doc
+    /// comment for the exact steps.
     async fn call_set_vibe_array(
-        _client: vibe_service_client::VibeServiceClient<T>,
-        _args: ::std::option::Option<::rmcp::model::JsonObject>,
+        mut client: vibe_service_client::VibeServiceClient<T>,
+        args: ::std::option::Option<::rmcp::model::JsonObject>,
     ) -> ::rmcp::model::CallToolResult {
-        ::rmcp::model::CallToolResult::error(vec![::rmcp::model::ContentBlock::text(
-            "SetVibeArray is not implemented",
-        )])
+        let args = ::serde_json::Value::Object(args.unwrap_or_default());
+        let errors: ::std::vec::Vec<::std::string::String> = VIBE_SERVICE_SET_VIBE_ARRAY_VALIDATOR
+            .iter_errors(&args)
+            .map(|e| ::std::format!("{}: {e}", e.instance_path()))
+            .collect();
+        if !errors.is_empty() {
+            return ::rmcp::model::CallToolResult::error(vec![::rmcp::model::ContentBlock::text(
+                ::std::format!("invalid arguments: {}", errors.join("; ")),
+            )]);
+        }
+        let request: SetVibeArrayRequest = match ::serde_json::from_value(args) {
+            Ok(r) => r,
+            Err(e) => {
+                return ::rmcp::model::CallToolResult::error(vec![::rmcp::model::ContentBlock::text(
+                    ::std::format!("decoding arguments: {e}"),
+                )]);
+            }
+        };
+        match client.set_vibe_array(::tonic::Request::new(request)).await {
+            Ok(response) => match ::serde_json::to_string(response.get_ref()) {
+                Ok(json) => ::rmcp::model::CallToolResult::success(vec![::rmcp::model::ContentBlock::text(json)]),
+                Err(e) => ::rmcp::model::CallToolResult::error(vec![::rmcp::model::ContentBlock::text(
+                    ::std::format!("encoding response: {e}"),
+                )]),
+            },
+            // grpc-go's Status.Error() format, which Go's generated server
+            // returns verbatim as the tool error text.
+            Err(status) => ::rmcp::model::CallToolResult::error(vec![::rmcp::model::ContentBlock::text(
+                ::std::format!("rpc error: code = {:?} desc = {}", status.code(), status.message()),
+            )]),
+        }
     }
 
-    /// Calls the stub handler for `SetVibeArray` with a clone of this
+    /// Calls the handler for `SetVibeArray` with a clone of this
     /// server's client. Exported so a caller can wrap it, e.g. an
     /// overriding tool (via [`register_tool`](Self::register_tool)) that
     /// pre-processes arguments and then delegates here.
@@ -227,20 +369,47 @@ where
         ::rmcp::model::Tool::new(r"SetVibeObjects", r"Set multiple vibe objects", VIBE_SERVICE_SET_VIBE_OBJECTS_INPUT_SCHEMA.clone())
     }
 
-    /// Stub handler for `SetVibeObjects`: always returns a "not
-    /// implemented" tool error. A later generator issue (#7) replaces
-    /// this with argument validation, pbjson decoding, the `SetVibeObjects`
-    /// tonic call, and a pbjson-encoded response.
+    /// Validates, decodes, calls the backend for, and encodes the
+    /// response of, a `SetVibeObjects` tool call: see this module's doc
+    /// comment for the exact steps.
     async fn call_set_vibe_objects(
-        _client: vibe_service_client::VibeServiceClient<T>,
-        _args: ::std::option::Option<::rmcp::model::JsonObject>,
+        mut client: vibe_service_client::VibeServiceClient<T>,
+        args: ::std::option::Option<::rmcp::model::JsonObject>,
     ) -> ::rmcp::model::CallToolResult {
-        ::rmcp::model::CallToolResult::error(vec![::rmcp::model::ContentBlock::text(
-            "SetVibeObjects is not implemented",
-        )])
+        let args = ::serde_json::Value::Object(args.unwrap_or_default());
+        let errors: ::std::vec::Vec<::std::string::String> = VIBE_SERVICE_SET_VIBE_OBJECTS_VALIDATOR
+            .iter_errors(&args)
+            .map(|e| ::std::format!("{}: {e}", e.instance_path()))
+            .collect();
+        if !errors.is_empty() {
+            return ::rmcp::model::CallToolResult::error(vec![::rmcp::model::ContentBlock::text(
+                ::std::format!("invalid arguments: {}", errors.join("; ")),
+            )]);
+        }
+        let request: SetVibeObjectsRequest = match ::serde_json::from_value(args) {
+            Ok(r) => r,
+            Err(e) => {
+                return ::rmcp::model::CallToolResult::error(vec![::rmcp::model::ContentBlock::text(
+                    ::std::format!("decoding arguments: {e}"),
+                )]);
+            }
+        };
+        match client.set_vibe_objects(::tonic::Request::new(request)).await {
+            Ok(response) => match ::serde_json::to_string(response.get_ref()) {
+                Ok(json) => ::rmcp::model::CallToolResult::success(vec![::rmcp::model::ContentBlock::text(json)]),
+                Err(e) => ::rmcp::model::CallToolResult::error(vec![::rmcp::model::ContentBlock::text(
+                    ::std::format!("encoding response: {e}"),
+                )]),
+            },
+            // grpc-go's Status.Error() format, which Go's generated server
+            // returns verbatim as the tool error text.
+            Err(status) => ::rmcp::model::CallToolResult::error(vec![::rmcp::model::ContentBlock::text(
+                ::std::format!("rpc error: code = {:?} desc = {}", status.code(), status.message()),
+            )]),
+        }
     }
 
-    /// Calls the stub handler for `SetVibeObjects` with a clone of this
+    /// Calls the handler for `SetVibeObjects` with a clone of this
     /// server's client. Exported so a caller can wrap it, e.g. an
     /// overriding tool (via [`register_tool`](Self::register_tool)) that
     /// pre-processes arguments and then delegates here.
@@ -316,7 +485,11 @@ where
 
 impl<T> ::rmcp::ServerHandler for VibeServiceMcpServer<T>
 where
-    T: ::std::clone::Clone + ::std::marker::Send + ::std::marker::Sync + 'static,
+    T: ::tonic::client::GrpcService<::tonic::body::Body> + ::std::clone::Clone + ::std::marker::Send + ::std::marker::Sync + 'static,
+    T::Error: ::std::convert::Into<::tonic::codegen::StdError>,
+    T::ResponseBody: ::tonic::codegen::Body<Data = ::tonic::codegen::Bytes> + ::std::marker::Send + 'static,
+    <T::ResponseBody as ::tonic::codegen::Body>::Error: ::std::convert::Into<::tonic::codegen::StdError> + ::std::marker::Send,
+    T::Future: ::std::marker::Send,
 {
     fn get_info(&self) -> ::rmcp::model::ServerConfig {
         ::rmcp::model::ServerConfig::new(

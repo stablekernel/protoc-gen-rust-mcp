@@ -72,13 +72,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 /// Compiles `tests/testdata/mcpgen/fixture.proto` with real `tonic-prost-
-/// build` (so `tests/server_integration.rs` exercises this generator's
-/// output against a real tonic-generated client, not a hand-written
-/// stand-in), then runs `server::generate_service` (this crate's own
-/// generator, `#[path]`-included above) against the same descriptors and
-/// writes the result as `mcpgen.mcp.rs` into `OUT_DIR`, so the test can
-/// `include!` all three files the way `examples/src/gen/` does for the
-/// real example.
+/// build` and `pbjson-build` (so `tests/server_integration.rs` exercises
+/// this generator's output against a real tonic-generated client and
+/// pbjson-generated `Serialize`/`Deserialize` impls, not a hand-written
+/// stand-in — the generated handler body, #7, decodes/encodes arguments
+/// with those impls), then runs `server::generate_service` (this crate's
+/// own generator, `#[path]`-included above) against the same descriptors
+/// and writes the result as `mcpgen.mcp.rs` into `OUT_DIR`, so the test
+/// can `include!` all three files the way `examples/src/gen/` does for
+/// the real example.
 fn generate_mcpgen_fixture() -> Result<(), Box<dyn std::error::Error>> {
     let proto_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/testdata/mcpgen");
     println!("cargo:rerun-if-changed={}", proto_dir.display());
@@ -86,6 +88,14 @@ fn generate_mcpgen_fixture() -> Result<(), Box<dyn std::error::Error>> {
     let fds = protox::compile(["fixture.proto"], [&proto_dir])?;
 
     tonic_prost_build::configure().compile_fds(fds.clone())?;
+
+    let descriptor_bytes = {
+        use protox::prost::Message;
+        fds.encode_to_vec()
+    };
+    pbjson_build::Builder::new()
+        .register_descriptors(&descriptor_bytes)?
+        .build(&[".mcpgen"])?;
 
     use prost_reflect::DescriptorPool;
     let pool = DescriptorPool::from_file_descriptor_set(fds)?;
