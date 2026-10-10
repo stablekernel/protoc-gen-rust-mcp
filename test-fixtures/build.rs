@@ -74,7 +74,19 @@ fn generate_mcpgen_fixture() -> Result<(), Box<dyn std::error::Error>> {
 
     let fds = protox::compile(["fixture.proto"], [&proto_dir])?;
 
-    tonic_prost_build::configure().compile_fds(fds.clone())?;
+    // Route google.protobuf well-known types (fixture.proto imports
+    // FieldMask, for #20's UpdateVibe RPC) to pbjson-types, same as
+    // schema.proto's own config above: tonic-prost-build's default of
+    // prost-types has no Serialize/Deserialize impls, which
+    // pbjson_build::Builder::build below needs to generate FieldMask's
+    // own (unused directly, since #20 rewrites its JSON before pbjson
+    // ever sees it) serde impl, and which this fixture's generated
+    // mcpgen.mcp.rs needs for UpdateVibeRequest/Response to compile at
+    // all (prost-types has no Serialize/Deserialize either way).
+    tonic_prost_build::configure()
+        .compile_well_known_types(true)
+        .extern_path(".google.protobuf", "::pbjson_types")
+        .compile_fds(fds.clone())?;
 
     let descriptor_bytes = {
         use protox::prost::Message;

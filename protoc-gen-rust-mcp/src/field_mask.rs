@@ -290,13 +290,23 @@ fn SERVICE_fm_str_to_obj(v: &mut ::serde_json::Value) {
 }
 
 /// The reverse of [`SERVICE_fm_str_to_obj`]: pbjson's `{\"paths\": [...]}`
-/// shape back into protojson's comma-joined lowerCamel string. A no-op if
-/// `v` has no `\"paths\"` array (schema validation on the way in, and this
-/// generator's own pbjson encoding on the way out, both guarantee that
+/// shape back into protojson's comma-joined lowerCamel string. A
+/// zero-valued FieldMask (no paths) pbjson-encodes as `{}` (a `\"paths\"`
+/// array is only present when non-empty, the usual pbjson/protojson
+/// zero-value-omission rule), which this maps to `\"\"`, not left as an
+/// empty JSON object: a no-op here would otherwise send a tool caller an
+/// `{}` object for what the schema promises is always a string. A no-op
+/// only if `v` is not even a JSON object (unreachable for a real
+/// FieldMask field, since schema validation on the way in and this
+/// generator's own pbjson encoding on the way out both guarantee that
 /// shape in practice).
 fn SERVICE_fm_obj_to_str(v: &mut ::serde_json::Value) {
-    let ::std::option::Option::Some(::serde_json::Value::Array(paths)) = v.get(\"paths\") else {
+    let ::std::option::Option::Some(obj) = v.as_object() else {
         return;
+    };
+    let paths = match obj.get(\"paths\") {
+        ::std::option::Option::Some(::serde_json::Value::Array(paths)) => paths.as_slice(),
+        _ => &[],
     };
     let joined = paths
         .iter()
@@ -385,12 +395,35 @@ mod tests {
         }
     }
 
+    /// A `map<string, FieldMask>` field's synthetic entry message
+    /// (`MapEntry.key`/`MapEntry.value`, the `map_entry = true` option),
+    /// used by [`pool`] to build `fmtest.WithMaskMap.masks`.
+    fn map_entry_message(
+        name: &str,
+        value_type: Type,
+        value_type_name: Option<&str>,
+    ) -> DescriptorProto {
+        DescriptorProto {
+            name: Some(name.to_string()),
+            field: vec![
+                field("key", 1, Type::String, None),
+                field("value", 2, value_type, value_type_name),
+            ],
+            options: Some(prost_types::MessageOptions {
+                map_entry: Some(true),
+                ..Default::default()
+            }),
+            ..Default::default()
+        }
+    }
+
     /// Builds a pool with:
     /// - `fmtest.Leaf`: no FieldMask anywhere (just a string field).
     /// - `fmtest.WithMask`: a direct FieldMask field.
     /// - `fmtest.Nested`: a message field pointing at `WithMask`.
     /// - `fmtest.Cyclic`: a self-referential field and nothing else (no
     ///   FieldMask reachable, even though it's recursive).
+    /// - `fmtest.WithMaskMap`: a `map<string, FieldMask>` field.
     fn pool() -> prost_reflect::DescriptorPool {
         let leaf = DescriptorProto {
             name: Some("Leaf".to_string()),
@@ -417,6 +450,26 @@ mod tests {
             field: vec![field("child", 1, Type::Message, Some(".fmtest.Cyclic"))],
             ..Default::default()
         };
+        let masks_entry = map_entry_message(
+            "MasksEntry",
+            Type::Message,
+            Some(".google.protobuf.FieldMask"),
+        );
+        let with_mask_map = DescriptorProto {
+            name: Some("WithMaskMap".to_string()),
+            field: vec![{
+                let mut f = field(
+                    "masks",
+                    1,
+                    Type::Message,
+                    Some(".fmtest.WithMaskMap.MasksEntry"),
+                );
+                f.label = Some(Label::Repeated as i32);
+                f
+            }],
+            nested_type: vec![masks_entry],
+            ..Default::default()
+        };
         let field_mask = DescriptorProto {
             name: Some("FieldMask".to_string()),
             field: vec![repeated_field("paths", 1, Type::String, None)],
@@ -433,7 +486,7 @@ mod tests {
             name: Some("fmtest.proto".to_string()),
             package: Some("fmtest".to_string()),
             dependency: vec!["google/protobuf/field_mask.proto".to_string()],
-            message_type: vec![leaf, with_mask, nested, cyclic],
+            message_type: vec![leaf, with_mask, nested, cyclic, with_mask_map],
             syntax: Some("proto3".to_string()),
             ..Default::default()
         };
@@ -469,6 +522,30 @@ mod tests {
         let pool = pool();
         let cyclic = pool.get_message_by_name("fmtest.Cyclic").unwrap();
         assert!(!message_needs_rewrite(&cyclic));
+    }
+
+    #[test]
+    fn message_with_map_valued_field_mask_needs_rewrite() {
+        let pool = pool();
+        let with_mask_map = pool.get_message_by_name("fmtest.WithMaskMap").unwrap();
+        assert!(message_needs_rewrite(&with_mask_map));
+    }
+
+    /// A map field's rewrite iterates its values (not its entries or
+    /// keys), calling the shared `..._fm_str_to_obj` helper directly on
+    /// each one, since a `map<string, FieldMask>`'s value is a FieldMask
+    /// itself, not a message that in turn contains one.
+    #[test]
+    fn map_valued_field_mask_rewrite_iterates_values() {
+        let pool = pool();
+        let with_mask_map = pool.get_message_by_name("fmtest.WithMaskMap").unwrap();
+        let mut codegen = FieldMaskCodegen::new("MyService");
+        let fn_name = codegen.ensure_in(&with_mask_map).expect("needs rewrite");
+        let functions = codegen.functions();
+        assert!(functions.contains(&format!("fn {fn_name}")));
+        assert!(functions.contains("obj.get_mut(\"masks\")"));
+        assert!(functions.contains("map.values_mut()"));
+        assert!(functions.contains("my_service_fm_str_to_obj(v)"));
     }
 
     #[test]
