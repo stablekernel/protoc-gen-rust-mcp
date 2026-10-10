@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package mcpgen;
 
+import "google/protobuf/field_mask.proto";
+
 // The request to set the vibe.
 message SetVibeRequest {
   // The vibe to set.
@@ -41,6 +43,36 @@ message OtherResponse {
   string value = 1;
 }
 
+// A message nested inside UpdateVibeRequest's own nested field, holding a
+// FieldMask: used to test that a FieldMask reached through a nested
+// message field (not just a top-level one) is rewritten too (#20).
+message UpdateVibeDetails {
+  google.protobuf.FieldMask detail_mask = 1;
+}
+
+// The request for UpdateVibe (#20): a top-level FieldMask, one nested
+// inside a message field, and a repeated FieldMask, to test every shape
+// the generated ..._fm_in rewrite must handle.
+message UpdateVibeRequest {
+  // A top-level FieldMask field.
+  google.protobuf.FieldMask update_mask = 1;
+  // A FieldMask nested inside a message field.
+  UpdateVibeDetails details = 2;
+  // A repeated FieldMask field.
+  repeated google.protobuf.FieldMask extra_masks = 3;
+}
+
+// The response for UpdateVibe (#20): echoes every FieldMask shape from
+// the request back, so a test can check the generated ..._fm_in rewrite
+// decoded the backend's paths correctly (via the response alone, instead
+// of needing shared mutable state to inspect what the backend received)
+// and that ..._fm_out runs on all three shapes in a result too.
+message UpdateVibeResponse {
+  google.protobuf.FieldMask applied_mask = 1;
+  UpdateVibeDetails details = 2;
+  repeated google.protobuf.FieldMask extra_masks = 3;
+}
+
 // A service with two unary RPCs and one server-streaming RPC, used to
 // test that streaming RPCs produce no tool.
 service VibeFixtureService {
@@ -50,6 +82,9 @@ service VibeFixtureService {
   rpc GetVibe(GetVibeRequest) returns (GetVibeResponse) {}
   // Streams vibes; should not produce an MCP tool.
   rpc StreamVibe(StreamVibeRequest) returns (stream StreamVibeResponse) {}
+  // Updates the vibe using a FieldMask (#20): request has a top-level,
+  // nested and repeated FieldMask; response echoes one back.
+  rpc UpdateVibe(UpdateVibeRequest) returns (UpdateVibeResponse) {}
 }
 
 // A second service, used to test that one MCP server can serve tools from

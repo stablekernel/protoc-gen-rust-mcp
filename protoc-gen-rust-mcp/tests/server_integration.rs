@@ -85,6 +85,25 @@ impl VibeFixtureService for FakeVibeBackend {
             "not used by this test; VibeFixtureService.StreamVibe produces no tool",
         ))
     }
+
+    /// Echoes every FieldMask it received straight back in the matching
+    /// response field, so a test can inspect exactly what paths the
+    /// generated `..._fm_in` rewrite decoded the request's top-level,
+    /// nested and repeated masks into (via the response alone, with no
+    /// shared mutable state across what may be parallel test runs), and
+    /// that the generated `..._fm_out` rewrite then runs on all three
+    /// shapes again on the way back out (#20).
+    async fn update_vibe(
+        &self,
+        request: tonic::Request<mcpgen::UpdateVibeRequest>,
+    ) -> Result<tonic::Response<mcpgen::UpdateVibeResponse>, tonic::Status> {
+        let req = request.into_inner();
+        Ok(tonic::Response::new(mcpgen::UpdateVibeResponse {
+            applied_mask: req.update_mask,
+            details: req.details,
+            extra_masks: req.extra_masks,
+        }))
+    }
 }
 
 /// An `OtherFixtureService` backend: `DoOther` echoes its input, used by
@@ -179,9 +198,9 @@ where
 }
 
 /// `register_default_tools()` registers one tool per unary RPC (`SetVibe`,
-/// `GetVibe`), by its proto method name, skipping the server-streaming
-/// `StreamVibe` RPC: the issue's "a streaming RPC in the test data
-/// produces no tool" criterion.
+/// `GetVibe`, `UpdateVibe`), by its proto method name, skipping the
+/// server-streaming `StreamVibe` RPC: the issue's "a streaming RPC in the
+/// test data produces no tool" criterion.
 #[tokio::test]
 async fn register_default_tools_registers_only_unary_methods() {
     let mut server = mcpgen::VibeFixtureServiceMcpServer::new(lazy_vibe_client());
@@ -195,7 +214,14 @@ async fn register_default_tools_registers_only_unary_methods() {
     let tools = client.list_all_tools().await.expect("list_all_tools");
     let mut names: Vec<String> = tools.iter().map(|t| t.name.to_string()).collect();
     names.sort_unstable();
-    assert_eq!(names, vec!["GetVibe".to_string(), "SetVibe".to_string()]);
+    assert_eq!(
+        names,
+        vec![
+            "GetVibe".to_string(),
+            "SetVibe".to_string(),
+            "UpdateVibe".to_string(),
+        ]
+    );
 }
 
 /// Calling a tool that isn't registered returns rmcp's normal "tool not
@@ -320,6 +346,7 @@ async fn one_server_can_serve_tools_from_two_services() {
             "DoOther".to_string(),
             "GetVibe".to_string(),
             "SetVibe".to_string(),
+            "UpdateVibe".to_string(),
         ]
     );
 
@@ -494,6 +521,159 @@ async fn handler_unknown_field_is_rejected_without_calling_backend() {
     assert_eq!(
         text.text,
         r#"invalid arguments: : Additional properties are not allowed ('not_a_field' was unexpected)"#
+    );
+}
+
+/// The `UpdateVibe` tool's input schema maps every FieldMask field (a
+/// top-level one, one nested inside a message field, and a repeated one)
+/// to `{"type": "string"}`, matching Go's protojson-compatible schema for
+/// FieldMask (#20's first acceptance criterion), not pbjson's own
+/// `{"paths": [...]}` shape.
+#[tokio::test]
+async fn update_vibe_schema_maps_field_mask_to_string() {
+    let schema =
+        mcpgen::VibeFixtureServiceMcpServer::<tonic::transport::Channel>::update_vibe_tool()
+            .schema_as_json_value();
+    assert_eq!(schema["properties"]["updateMask"]["type"], "string");
+    assert_eq!(
+        schema["properties"]["details"]["properties"]["detailMask"]["type"],
+        "string"
+    );
+    assert_eq!(
+        schema["properties"]["extraMasks"]["items"]["type"],
+        "string"
+    );
+}
+
+/// `{"updateMask": "vibe,someField"}` reaches the backend as paths
+/// `["vibe", "some_field"]`, and a mask nested inside a message field
+/// (`details.detailMask`) and a repeated FieldMask field (`extraMasks`)
+/// are converted the same way: the generated `..._fm_in` rewrite handles
+/// all three shapes (#20's second and third acceptance criteria).
+/// `FakeVibeBackend::update_vibe` echoes every mask it receives straight
+/// back in the matching response field, so the exact paths the backend
+/// received are visible here (via `..._fm_out` converting them back to
+/// protojson strings) without needing shared mutable state to inspect the
+/// backend's own request.
+#[tokio::test]
+async fn update_vibe_decodes_top_level_nested_and_repeated_field_masks() {
+    let mut server = mcpgen::VibeFixtureServiceMcpServer::new(serve_vibe_backend().await);
+    server.register_default_tools();
+    let client = serve(server).await;
+
+    let mut args = JsonObject::new();
+    args.insert(
+        "updateMask".to_string(),
+        serde_json::json!("vibe,someField"),
+    );
+    args.insert(
+        "details".to_string(),
+        serde_json::json!({"detailMask": "a.bC"}),
+    );
+    args.insert(
+        "extraMasks".to_string(),
+        serde_json::json!(["x,yZ", "oneTwo"]),
+    );
+    let result = client
+        .call_tool(CallToolRequestParams::new("UpdateVibe").with_arguments(args))
+        .await
+        .expect("call_tool");
+    assert_eq!(result.is_error, Some(false), "{result:?}");
+    let rmcp::model::ContentBlock::Text(text) = &result.content[0] else {
+        panic!("expected text content");
+    };
+    // The backend received paths ["vibe", "some_field"] for the top-level
+    // mask (proven by the snake_case paths pbjson encoded on the way
+    // out), ["a", "b_c"] for the nested one, and the two repeated masks
+    // split and converted the same way; `..._fm_out` then converts every
+    // one of them straight back to protojson's lowerCamel comma-joined
+    // form, which is exactly the original input string for each (proving
+    // the round trip is lossless for these inputs).
+    let value: serde_json::Value = serde_json::from_str(&text.text).expect("valid JSON");
+    assert_eq!(value["appliedMask"], "vibe,someField");
+    assert_eq!(value["details"]["detailMask"], "a.bC");
+    assert_eq!(value["extraMasks"], serde_json::json!(["x,yZ", "oneTwo"]));
+}
+
+/// A FieldMask in a response comes back as a single comma-joined
+/// lowerCamel string, not pbjson's own `{"paths": [...]}` shape: the
+/// generated `..._fm_out` rewrite runs on the pbjson-encoded result
+/// (#20's second acceptance criterion, result side).
+#[tokio::test]
+async fn update_vibe_result_encodes_field_mask_as_comma_joined_string() {
+    let mut server = mcpgen::VibeFixtureServiceMcpServer::new(serve_vibe_backend().await);
+    server.register_default_tools();
+    let client = serve(server).await;
+
+    let mut args = JsonObject::new();
+    args.insert(
+        "updateMask".to_string(),
+        serde_json::json!("vibe,someField"),
+    );
+    let result = client
+        .call_tool(CallToolRequestParams::new("UpdateVibe").with_arguments(args))
+        .await
+        .expect("call_tool");
+    assert_eq!(result.is_error, Some(false), "{result:?}");
+    let rmcp::model::ContentBlock::Text(text) = &result.content[0] else {
+        panic!("expected text content");
+    };
+    assert_eq!(text.text, r#"{"appliedMask":"vibe,someField"}"#);
+}
+
+/// An empty string means no paths (protojson's rule, mirrored by the
+/// generated `..._fm_str_to_obj` helper): `updateMask: ""` decodes into a
+/// *present* FieldMask with zero paths (not one empty-string path), which
+/// pbjson then encodes as `{}` (a message field has presence in proto3,
+/// so a present-but-empty FieldMask is not omitted the way an absent one
+/// would be); `..._fm_out` converts that `{}` to `""` rather than leaving
+/// it as an empty object, matching what Go's protojson would also emit
+/// for a present, zero-path FieldMask (`strings.Join(nil, ",")` is `""`).
+#[tokio::test]
+async fn update_vibe_empty_mask_string_means_no_paths() {
+    let mut server = mcpgen::VibeFixtureServiceMcpServer::new(serve_vibe_backend().await);
+    server.register_default_tools();
+    let client = serve(server).await;
+
+    let mut args = JsonObject::new();
+    args.insert("updateMask".to_string(), serde_json::json!(""));
+    let result = client
+        .call_tool(CallToolRequestParams::new("UpdateVibe").with_arguments(args))
+        .await
+        .expect("call_tool");
+    assert_eq!(result.is_error, Some(false), "{result:?}");
+
+    let rmcp::model::ContentBlock::Text(text) = &result.content[0] else {
+        panic!("expected text content");
+    };
+    assert_eq!(text.text, r#"{"appliedMask":""}"#);
+}
+
+/// A non-string `updateMask` fails schema validation before decoding
+/// (the schema says `{"type": "string"}`, not pbjson's own object
+/// shape), and the backend is never called.
+#[tokio::test]
+async fn update_vibe_wrong_argument_type_is_rejected_without_calling_backend() {
+    let mut server = mcpgen::VibeFixtureServiceMcpServer::new(lazy_vibe_client());
+    server.register_default_tools();
+    let client = serve(server).await;
+
+    let mut args = JsonObject::new();
+    args.insert(
+        "updateMask".to_string(),
+        serde_json::json!({"paths": ["vibe"]}),
+    );
+    let result = client
+        .call_tool(CallToolRequestParams::new("UpdateVibe").with_arguments(args))
+        .await
+        .expect("call_tool");
+    assert_eq!(result.is_error, Some(true));
+    let rmcp::model::ContentBlock::Text(text) = &result.content[0] else {
+        panic!("expected text content");
+    };
+    assert_eq!(
+        text.text,
+        r#"invalid arguments: /updateMask: {"paths":["vibe"]} is not of type "string""#
     );
 }
 

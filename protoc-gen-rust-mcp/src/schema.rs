@@ -5,12 +5,20 @@
 //! rule, reproduced here where it affects this port.
 //!
 //! The schema describes exactly what the pbjson-generated serde (this
-//! repo's counterpart of Go's `protojson`) accepts for the message. The two
-//! mappings agree on every rule below, with two deliberate exceptions
-//! documented on [`any_schema`] and [`well_known_type_schema`]'s
-//! `google.protobuf.FieldMask` case: pbjson does not special-case
-//! `Any` or `FieldMask` the way `protojson` does, and instead encodes both
-//! as the plain message they are on the wire.
+//! repo's counterpart of Go's `protojson`) accepts for the message, with
+//! one deliberate exception documented on [`any_schema`]: pbjson does not
+//! special-case `Any` the way `protojson` does, and instead encodes it as
+//! the plain message it is on the wire.
+//!
+//! `google.protobuf.FieldMask` is a second well-known type pbjson does not
+//! special-case (see [`well_known_type_schema`]'s `WKT_FIELD_MASK` case),
+//! but unlike `Any` this module's schema for it (`{"type": "string"}`)
+//! matches `protojson`, not pbjson's own serde (which would need
+//! `{"type": "object", "properties": {"paths": ...}}` to describe what it
+//! actually accepts): per #20's decision, `server.rs`'s generated code
+//! rewrites a FieldMask field's JSON between schema validation and pbjson
+//! decode/encode, so the schema here describes what a caller actually
+//! sees and sends, not pbjson's own serde in isolation.
 //!
 //! A third, narrower difference (documented on [`float_schema`]) is in
 //! float/double **output**, not input: pbjson serializes non-finite values
@@ -334,22 +342,24 @@ fn well_known_type_schema(full_name: &str) -> Option<Value> {
             json!({})
         }
         WKT_LIST_VALUE => json!({"type": "array"}),
-        // **pbjson/protojson difference:** protojson encodes a FieldMask as
-        // a single comma-joined string of its paths (e.g. `"a,b.c"`).
-        // pbjson-types has no special case for FieldMask (unlike Timestamp,
-        // Duration, Struct, Value, ListValue and the wrappers, each of
-        // which has a hand-written `Serialize`/`Deserialize` impl in
-        // `pbjson-types`' source; see its `build.rs`'s `exclude` list,
-        // which FieldMask is conspicuously absent from): the generated
-        // serde instead treats it as the plain one-field message it is on
-        // the wire, serializing it as `{"paths": ["a", "b.c"]}`.
-        // `tests::schema_test_message`'s `updateMask` case pins down the
-        // current pbjson behavior this is based on.
-        WKT_FIELD_MASK => json!({
-            "type": "object",
-            "properties": {"paths": {"type": "array", "items": {"type": "string"}}},
-            "additionalProperties": false,
-        }),
+        // **Matches protojson, not pbjson's own serde.** pbjson-types has
+        // no special case for FieldMask (unlike Timestamp, Duration,
+        // Struct, Value, ListValue and the wrappers, each of which has a
+        // hand-written `Serialize`/`Deserialize` impl in `pbjson-types`'
+        // source; see its `build.rs`'s `exclude` list, which FieldMask is
+        // conspicuously absent from): the generated serde instead treats
+        // it as the plain one-field message it is on the wire,
+        // serializing it as `{"paths": ["a", "b_c"]}`. protojson instead
+        // encodes a FieldMask as a single comma-joined string of
+        // lowerCamel paths (e.g. `"a,bC"`), per #20's decision to match
+        // Go rather than pbjson here: the schema says `string`, and
+        // `server.rs`'s generated per-message `..._fm_in`/`..._fm_out`
+        // functions rewrite the JSON between schema validation and
+        // pbjson decode (arguments), and between pbjson encode and
+        // `to_string` (results), so this is the schema users actually see
+        // and the wire format callers actually get, even though pbjson's
+        // own serde never produces or accepts this shape directly.
+        WKT_FIELD_MASK => json!({"type": "string"}),
         WKT_EMPTY => json!({"type": "object", "additionalProperties": false}),
         WKT_ANY => any_schema(),
         WKT_DOUBLE_VALUE | WKT_FLOAT_VALUE => float_schema(),
@@ -704,14 +714,7 @@ mod tests {
             ("metadata", json!({"type": "object"})),
             ("anyValue", json!({})),
             ("anyList", json!({"type": "array"})),
-            (
-                "updateMask",
-                json!({
-                    "type": "object",
-                    "properties": {"paths": {"type": "array", "items": {"type": "string"}}},
-                    "additionalProperties": false,
-                }),
-            ),
+            ("updateMask", json!({"type": "string"})),
             (
                 "nothing",
                 json!({"type": "object", "additionalProperties": false}),
@@ -877,6 +880,15 @@ mod tests {
     /// and checks that each one, pbjson-serialized, validates against the
     /// schema generated for `SchemaTestMessage`, per the issue's
     /// property-test acceptance criterion.
+    ///
+    /// `random_schema_test_message` deliberately never sets `update_mask`:
+    /// pbjson's own serde for `FieldMask` (`{"paths": [...]}`) no longer
+    /// matches this module's `{"type": "string"}` schema for it (#20):
+    /// only `server.rs`'s generated per-message `..._fm_in`/`..._fm_out`
+    /// rewrites, not pbjson's serde in isolation, turn one into the
+    /// other, so validating a raw pbjson-serialized `update_mask` against
+    /// this schema here would fail by design. `server.rs`'s own tests
+    /// cover the FieldMask rewrite end to end.
     #[test]
     fn schema_validates_populated_messages() {
         let msg = load_message("SchemaTestMessage");
@@ -1028,9 +1040,8 @@ mod tests {
                     },
                 ],
             });
-            m.update_mask = Some(pbjson_types::FieldMask {
-                paths: vec!["name".to_string(), "root.value".to_string()],
-            });
+            // update_mask is deliberately left unset: see this function's
+            // caller, schema_validates_populated_messages, for why.
             m.nothing = Some(pbjson_types::Empty {});
             m.score_wrapper = Some(pbjson_types::DoubleValue {
                 value: rng.random(),
