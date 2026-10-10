@@ -91,6 +91,7 @@ use prost_reflect::{MessageDescriptor, MethodDescriptor, ServiceDescriptor};
 use serde_json::Value;
 
 use crate::comments::{camel_to_space, process_comment_to_string};
+use crate::field_mask::FieldMaskCodegen;
 use crate::rust_literal::rust_string_literal;
 use crate::schema::message_input_schema;
 use crate::source_info::leading_comments;
@@ -157,6 +158,14 @@ pub fn generate_service(service: &ServiceDescriptor) -> String {
         out.push('\n');
     }
 
+    // Per-message FieldMask JSON rewrite functions (#20): populated below
+    // as method_handler_fn asks for a request/response message's
+    // ..._fm_in/..._fm_out function (memoized, so a message type shared
+    // across methods only gets one function per direction). Emits
+    // nothing for a service with no FieldMask field anywhere in its
+    // methods' messages, same as before this existed.
+    let mut field_mask_codegen = FieldMaskCodegen::new(service_name);
+
     let _ = write!(
         out,
         "/// A registered tool's handler: takes the raw tool call arguments\n\
@@ -221,7 +230,12 @@ pub fn generate_service(service: &ServiceDescriptor) -> String {
     for method in &unary_methods {
         out.push_str(&method_tool_fn(service_name, method));
         out.push('\n');
-        out.push_str(&method_handler_fn(service_name, &client_path, method));
+        out.push_str(&method_handler_fn(
+            service_name,
+            &client_path,
+            method,
+            &mut field_mask_codegen,
+        ));
         out.push('\n');
         out.push_str(&method_public_handler_fn(method));
         out.push('\n');
@@ -326,6 +340,11 @@ pub fn generate_service(service: &ServiceDescriptor) -> String {
          \u{20}   }}\n\
          }}\n"
     );
+
+    if !field_mask_codegen.functions().is_empty() {
+        out.push('\n');
+        out.push_str(field_mask_codegen.functions());
+    }
 
     out
 }
@@ -437,24 +456,80 @@ fn validator_constant(service_name: &str, method: &MethodDescriptor) -> String {
 /// 1. Validates them against the method's `..._VALIDATOR`, returning a
 ///    tool error listing every failing instance path and reason (backend
 ///    not called) on failure.
-/// 2. Decodes them into the request message with
+/// 2. If the request message transitively contains a FieldMask field
+///    (#20), rewrites every such field's JSON in place from protojson's
+///    comma-joined lowerCamel string to pbjson's own `{"paths": [...]}`
+///    shape, via the request message's `..._fm_in` function
+///    ([`FieldMaskCodegen::ensure_in`]). A no-op (this step is skipped
+///    entirely) for a request with no FieldMask anywhere in it.
+/// 3. Decodes them into the request message with
 ///    `serde_json::from_value` (the pbjson-generated `Deserialize`),
 ///    returning a tool error on failure (backend not called).
-/// 3. Calls the tonic client, returning a tool error formatted like
+/// 4. Calls the tonic client, returning a tool error formatted like
 ///    grpc-go's `Status.Error()` on a `tonic::Status`.
-/// 4. Encodes the response with `serde_json::to_string` (the
-///    pbjson-generated `Serialize`) and returns it as a successful tool
-///    result.
+/// 5. Encodes the response with `serde_json::to_value` (the
+///    pbjson-generated `Serialize`), and, symmetrically with step 2, runs
+///    the response message's `..._fm_out` function on the result if it
+///    transitively contains a FieldMask, then `serde_json::to_string`s
+///    it and returns that as a successful tool result.
 ///
 /// Named `call_<method>` (not `<method>_handler`, which is the public
 /// wrapper in [`method_public_handler_fn`]) because `register_default_tools`
 /// builds its closures from this one directly, cloning `self.client` once
 /// per registration rather than once per call.
-fn method_handler_fn(service_name: &str, client_path: &str, method: &MethodDescriptor) -> String {
+fn method_handler_fn(
+    service_name: &str,
+    client_path: &str,
+    method: &MethodDescriptor,
+    field_mask_codegen: &mut FieldMaskCodegen,
+) -> String {
     let method_name = method.name();
     let fn_name = method_fn_name(method);
     let validator_const = validator_const_name(service_name, method);
     let request_path = rust_message_path(&method.input());
+
+    // `None` for a request/response message with no FieldMask anywhere in
+    // it. In that (overwhelmingly common) case, the handler body below is
+    // byte-for-byte identical to what this generator produced before #20
+    // (the golden file and example.proto's parity fixture, neither of
+    // which has a FieldMask field, pin that): the `args`/`response value`
+    // bindings stay immutable and go straight from validate to decode, or
+    // from the tonic call to `serde_json::to_string`, with no extra
+    // rewrite step or `let mut` spliced in.
+    let fm_in_fn = field_mask_codegen.ensure_in(&method.input());
+    let fm_out_fn = field_mask_codegen.ensure_out(&method.output());
+
+    let args_binding = if fm_in_fn.is_some() {
+        "mut args"
+    } else {
+        "args"
+    };
+    let fm_in_call = fm_in_fn
+        .map(|fn_name| format!("\u{20}       {fn_name}(&mut args);\n"))
+        .unwrap_or_default();
+
+    let response_encode = match fm_out_fn {
+        None => "\u{20}           Ok(response) => match ::serde_json::to_string(response.get_ref()) {\n\
+             \u{20}               Ok(json) => ::rmcp::model::CallToolResult::success(vec![::rmcp::model::ContentBlock::text(json)]),\n\
+             \u{20}               Err(e) => ::rmcp::model::CallToolResult::error(vec![::rmcp::model::ContentBlock::text(\n\
+             \u{20}                   ::std::format!(\"encoding response: {e}\"),\n\
+             \u{20}               )]),\n\
+             \u{20}           },\n".to_string(),
+        Some(fm_out_fn) => format!(
+            "\u{20}           Ok(response) => match ::serde_json::to_value(response.get_ref()) {{\n\
+             \u{20}               Ok(mut value) => {{\n\
+             \u{20}                   {fm_out_fn}(&mut value);\n\
+             \u{20}                   ::rmcp::model::CallToolResult::success(vec![::rmcp::model::ContentBlock::text(\n\
+             \u{20}                       value.to_string(),\n\
+             \u{20}                   )])\n\
+             \u{20}               }}\n\
+             \u{20}               Err(e) => ::rmcp::model::CallToolResult::error(vec![::rmcp::model::ContentBlock::text(\n\
+             \u{20}                   ::std::format!(\"encoding response: {{e}}\"),\n\
+             \u{20}               )]),\n\
+             \u{20}           }},\n"
+        ),
+    };
+
     format!(
         "    /// Validates, decodes, calls the backend for, and encodes the\n\
          \u{20}   /// response of, a `{method_name}` tool call: see this module's doc\n\
@@ -463,7 +538,7 @@ fn method_handler_fn(service_name: &str, client_path: &str, method: &MethodDescr
          \u{20}       mut client: {client_path}<T>,\n\
          \u{20}       args: ::std::option::Option<::rmcp::model::JsonObject>,\n\
          \u{20}   ) -> ::rmcp::model::CallToolResult {{\n\
-         \u{20}       let args = ::serde_json::Value::Object(args.unwrap_or_default());\n\
+         \u{20}       let {args_binding} = ::serde_json::Value::Object(args.unwrap_or_default());\n\
          \u{20}       let errors: ::std::vec::Vec<::std::string::String> = {validator_const}\n\
          \u{20}           .iter_errors(&args)\n\
          \u{20}           .map(|e| ::std::format!(\"{{}}: {{e}}\", e.instance_path()))\n\
@@ -473,6 +548,7 @@ fn method_handler_fn(service_name: &str, client_path: &str, method: &MethodDescr
          \u{20}               ::std::format!(\"invalid arguments: {{}}\", errors.join(\"; \")),\n\
          \u{20}           )]);\n\
          \u{20}       }}\n\
+         {fm_in_call}\
          \u{20}       let request: {request_path} = match ::serde_json::from_value(args) {{\n\
          \u{20}           Ok(r) => r,\n\
          \u{20}           Err(e) => {{\n\
@@ -482,12 +558,7 @@ fn method_handler_fn(service_name: &str, client_path: &str, method: &MethodDescr
          \u{20}           }}\n\
          \u{20}       }};\n\
          \u{20}       match client.{fn_name}(::tonic::Request::new(request)).await {{\n\
-         \u{20}           Ok(response) => match ::serde_json::to_string(response.get_ref()) {{\n\
-         \u{20}               Ok(json) => ::rmcp::model::CallToolResult::success(vec![::rmcp::model::ContentBlock::text(json)]),\n\
-         \u{20}               Err(e) => ::rmcp::model::CallToolResult::error(vec![::rmcp::model::ContentBlock::text(\n\
-         \u{20}                   ::std::format!(\"encoding response: {{e}}\"),\n\
-         \u{20}               )]),\n\
-         \u{20}           }},\n\
+         {response_encode}\
          \u{20}           // grpc-go's Status.Error() format, which Go's generated server\n\
          \u{20}           // returns verbatim as the tool error text.\n\
          \u{20}           Err(status) => ::rmcp::model::CallToolResult::error(vec![::rmcp::model::ContentBlock::text(\n\

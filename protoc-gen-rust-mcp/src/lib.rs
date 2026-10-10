@@ -6,6 +6,7 @@
 //! drives this library over stdin/stdout.
 
 pub mod comments;
+pub mod field_mask;
 pub mod generator;
 pub mod header;
 pub mod rust_literal;
