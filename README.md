@@ -13,8 +13,10 @@ This is a [Topeka](#topeka) plugin for the [protoc compiler](https://grpc.io/doc
 [TODO: add instructions to debug the plugin]
 
 #### Testing the example
-Install the example `mcp-vibe` server
-[TODO: add instructions to run the project specific example server]
+Install the example `mcp-vibe` server:
+```sh
+cargo install --path examples --bin mcp-vibe
+```
 Add the `mcp-vibe` server to your mcp servers:
 ```json
 {
