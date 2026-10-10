@@ -11,6 +11,10 @@ publish = false
 name = "examples"
 path = "src/lib.rs"
 
+[[bin]]
+name = "mcp-vibe"
+path = "src/bin/mcp-vibe.rs"
+
 [dependencies]
 prost = "0.14"
 prost-types = "0.14"
@@ -18,6 +22,11 @@ tonic = { version = "0.14", default-features = false, features = [
     "codegen",
     "channel",
     "server",
+    # `mcp-vibe` (src/bin/mcp-vibe.rs) runs an in-process `VibeService`
+    # backend with `Server::builder().add_service(...)`, which needs the
+    # router feature (tests/handler.rs needed the same thing as a
+    # dev-dependency before this binary existed as a normal one).
+    "router",
 ] }
 tonic-prost = "0.14"
 pbjson = "0.8"
@@ -25,7 +34,12 @@ pbjson-types = "0.8"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 async-trait = "0.1"
-rmcp = { version = "3.5", default-features = false, features = ["server"] }
+rmcp = { version = "3.5", default-features = false, features = [
+    "server",
+    # `mcp-vibe` serves MCP over stdio (`rmcp::transport::io::stdio`); this
+    # was a test-only dev-dependency before this binary existed.
+    "transport-io",
+] }
 futures = "0.3"
 # Validates tool call arguments against the generated input schema before
 # decoding them (see protoc-gen-rust-mcp/src/server.rs's module doc
@@ -34,19 +48,25 @@ futures = "0.3"
 # `$ref` resolution is needed (every generated schema is self-contained),
 # hence `default-features = false`.
 jsonschema = { version = "0.58", default-features = false }
+# `mcp-vibe`'s async runtime: "rt-multi-thread" and "macros" to run
+# `#[tokio::main]`, "net" for the in-process backend's `TcpListener`,
+# and "signal" to shut down cleanly on SIGINT/SIGTERM.
+tokio = { version = "1", features = [
+    "macros",
+    "rt-multi-thread",
+    "net",
+    "signal",
+] }
 
 [dev-dependencies]
-tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
-# "router" adds Server::builder()/add_service, to run a real in-process
-# tonic server in tests/handler.rs ("server" and "channel" are already
-# pulled in by [dependencies].tonic above).
-tonic = { version = "0.14", default-features = false, features = ["router"] }
 # tests/handler.rs drives the generated server through a real rmcp
-# client ("client") over an in-memory duplex transport
-# ("transport-io"), instead of calling the handler directly, so it
-# exercises the same wire path a real MCP client would. Needed here (in
-# addition to [dependencies]'s "server") so `cargo test -p examples`
-# compiles on its own, without relying on feature unification with
-# protoc-gen-rust-mcp's own dev-dependency on rmcp under
-# `cargo test --workspace`.
-rmcp = { version = "3.5", default-features = false, features = ["client", "transport-io"] }
+# client ("client") over an in-memory duplex transport, instead of
+# calling the handler directly, so it exercises the same wire path a
+# real MCP client would. tests/mcp_vibe_binary.rs goes one step further
+# and spawns the real `mcp-vibe` binary as a subprocess
+# ("transport-child-process"), driving it over its actual stdio
+# transport.
+rmcp = { version = "3.5", default-features = false, features = [
+    "client",
+    "transport-child-process",
+] }
