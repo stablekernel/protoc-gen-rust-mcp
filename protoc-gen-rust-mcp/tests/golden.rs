@@ -6,10 +6,16 @@
 //! parses the proto file and builds its descriptor (with comments, via
 //! `SourceCodeInfo`) in-process, so this test needs neither a `protoc`
 //! binary nor network access. `generator::generate` then runs against that
-//! request exactly as it would via `protoc`, and the resulting
-//! `examples.v1.mcp.rs` is compared byte for byte with the committed
-//! `examples/src/gen/examples/v1/examples.v1.mcp.rs` (the file `make
-//! generate` writes for the same proto).
+//! request exactly as it would via `protoc`; its output is already run
+//! through `prettyplease` (see `generator.rs`'s `format_rust`), and is
+//! then piped through the real `rustfmt` binary too (see
+//! [`rustfmt_edition_2024`]), the same final pass `make generate`'s
+//! `Makefile` target applies to its `*.mcp.rs` output, because
+//! `prettyplease`'s line-wrapping rules don't always agree with
+//! `rustfmt`'s own on every construct (#22's acceptance criterion that
+//! `rustfmt --check` passes on the committed file). The result is compared
+//! byte for byte with the committed
+//! `examples/src/gen/examples/v1/examples.v1.mcp.rs`.
 //!
 //! When a deliberate change to the generator changes the output,
 //! regenerate the golden file with:
@@ -19,6 +25,9 @@
 //! ```
 //!
 //! and review the diff; an unexpected change is a bug until explained.
+//! This needs `rustfmt` on `PATH`, already required for this repo's own
+//! `cargo fmt --all --check` check and pinned as a component in
+//! `rust-toolchain.toml`.
 
 use pretty_assertions::assert_eq;
 use prost_types::compiler::{CodeGeneratorRequest, Version};
@@ -92,6 +101,7 @@ fn generated_output_matches_committed_golden_file() {
         .find(|f| f.name.as_deref() == Some("examples/v1/examples.v1.mcp.rs"))
         .and_then(|f| f.content.as_deref())
         .expect("generator emits examples/v1/examples.v1.mcp.rs");
+    let got = rustfmt_edition_2024(got);
 
     if std::env::var_os("UPDATE_GOLDEN").is_some() {
         std::fs::write(GOLDEN_FILE_PATH, got).expect("writing golden file");
@@ -105,4 +115,36 @@ fn generated_output_matches_committed_golden_file() {
          is intentional, run `UPDATE_GOLDEN=1 cargo test -p \
          protoc-gen-rust-mcp golden` and review the diff"
     );
+}
+
+/// Pipes `source` through `rustfmt --edition 2024`, the same final
+/// formatting pass `make generate`'s `Makefile` target applies to every
+/// `*.mcp.rs` file after this plugin runs (see this module's doc
+/// comment). Panics if `rustfmt` is missing or rejects `source` (both
+/// indicate a bug in the generator or this repo's toolchain setup, not a
+/// normal test failure mode).
+fn rustfmt_edition_2024(source: &str) -> String {
+    use std::io::Write as _;
+    use std::process::{Command, Stdio};
+
+    let mut child = Command::new("rustfmt")
+        .args(["--edition", "2024", "--emit", "stdout"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawning rustfmt (required on PATH; see rust-toolchain.toml's components)");
+    child
+        .stdin
+        .take()
+        .expect("piped stdin")
+        .write_all(source.as_bytes())
+        .expect("writing to rustfmt's stdin");
+    let output = child.wait_with_output().expect("waiting for rustfmt");
+    assert!(
+        output.status.success(),
+        "rustfmt failed on generated code: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout).expect("rustfmt output is valid UTF-8")
 }

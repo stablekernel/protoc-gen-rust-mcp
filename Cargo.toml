@@ -3,6 +3,7 @@ resolver = "3"
 members = [
     "protoc-gen-rust-mcp",
     "examples",
+    "test-fixtures",
 ]
 
 [workspace.package]

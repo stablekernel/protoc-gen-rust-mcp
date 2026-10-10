@@ -138,14 +138,16 @@ pub fn generate_service(service: &ServiceDescriptor) -> String {
 
     let mut out = String::new();
 
+    // A doc comment (`///`), not a plain `//` one: `format_rust`
+    // (`generator.rs`) runs this whole module through `prettyplease`,
+    // which parses it as a `syn::File` and only keeps comments that are
+    // doc comments or attached to an AST node it round-trips — a plain
+    // comment here would silently vanish (#22).
     for name in &skipped {
         let _ = writeln!(
             out,
-            "// Skipping {name}: client- or server-streaming RPCs are not supported as MCP tools."
+            "/// Skipping {name}: client- or server-streaming RPCs are not supported as MCP tools."
         );
-    }
-    if !skipped.is_empty() {
-        out.push('\n');
     }
 
     for method in &unary_methods {

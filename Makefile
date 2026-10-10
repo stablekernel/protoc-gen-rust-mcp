@@ -27,3 +27,12 @@ generate: protoc-gen-rust-mcp
 		--plugin=protoc-gen-rust-mcp=target/debug/protoc-gen-rust-mcp \
 		--rust-mcp_out=$(GENDIR) \
 		$(PROTOS) && echo "Generated successfully!"
+	@# protoc-gen-rust-mcp already runs its *.mcp.rs output through
+	@# prettyplease (see generator.rs's format_rust), the same formatter
+	@# prost-build/tonic-build use for their own output, but prettyplease's
+	@# line-wrapping rules differ from rustfmt's on a few constructs (e.g.
+	@# chained method calls), so its output is not always identical to
+	@# `rustfmt --check`'s expectations (#22's acceptance criterion). Run
+	@# the real rustfmt over just the *.mcp.rs files as a final pass to
+	@# guarantee that.
+	@rustfmt --edition 2024 $(shell find $(GENDIR) -name '*.mcp.rs')

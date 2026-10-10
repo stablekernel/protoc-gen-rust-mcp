@@ -1,0 +1,59 @@
+[package]
+name = "test-fixtures"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Dev-only test fixtures for protoc-gen-rust-mcp: compiles tests/testdata's protos and runs the real generator against them, so protoc-gen-rust-mcp's own build.rs doesn't have to (#22)."
+publish = false
+
+[lib]
+name = "test_fixtures"
+path = "src/lib.rs"
+
+[dependencies]
+# Needed at runtime by the pbjson-generated Deserialize/Serialize impls and
+# the well-known-type field types this crate routes google.protobuf.* to
+# (see build.rs).
+pbjson = "0.8"
+pbjson-types = "0.8"
+prost = "0.14"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# tests/testdata/mcpgen/fixture.proto is compiled with real tonic-prost
+# codegen, so its generated client/server code needs tonic and
+# tonic-prost at runtime, not just at build time.
+tonic = { version = "0.14", default-features = false, features = [
+    "codegen",
+    "channel",
+] }
+tonic-prost = "0.14"
+# The generated MCP server code (`mcpgen.mcp.rs`, built from this crate's
+# own `server::generate_service`) needs the same runtime dependencies any
+# other generated `.mcp.rs` does: `rmcp` for the server/tool types,
+# `jsonschema` for the per-tool argument validator, and `futures` for the
+# handler type alias's `BoxFuture`.
+jsonschema = { version = "0.58", default-features = false }
+futures = "0.3"
+
+[dependencies.rmcp]
+version = "3.5"
+default-features = false
+features = ["server"]
+
+[build-dependencies]
+# Used only by build.rs, to compile tests/testdata/schemapb/schema.proto
+# and tests/testdata/mcpgen/fixture.proto with protox (no protoc or
+# network access needed), generate their pbjson/tonic Rust types, and run
+# protoc-gen-rust-mcp's own `server::generate_service` against the
+# mcpgen fixture's descriptors (a normal dependency on the plugin crate,
+# unlike the old protoc-gen-rust-mcp/build.rs, which could not depend on
+# the library crate it was building and had to #[path]-include its
+# modules instead; see #22).
+protoc-gen-rust-mcp = { path = "../protoc-gen-rust-mcp" }
+protox = "0.10"
+prost-build = "0.14"
+prost-reflect = "0.16"
+prost-types = "0.14"
+pbjson-build = "0.8"
+tonic-prost-build = { version = "0.14", default-features = false }
