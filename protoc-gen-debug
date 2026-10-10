@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Counterpart of Go's `protoc-gen-debug` (a two-line script that runs the
+# plugin under `dlv exec --headless`): saves the `CodeGeneratorRequest`
+# `protoc` sends on stdin to `request.bin` in the current directory, so
+# it can be replayed later under a real debugger without needing
+# `protoc` or a full `--*_out` pipeline each time. Unlike Go's version,
+# it does not itself start a debugger: `dlv` has no direct Rust
+# counterpart, so the README's "Debugging the plugin" section instead
+# shows running `cargo run -p protoc-gen-rust-mcp` under
+# `rust-lldb`/VS Code CodeLLDB with the saved file as stdin. `protoc`
+# invokes a plugin with no arguments beyond what `--debug_opt` would add
+# (none here), so there is no argument to read an output path from.
+#
+# Usage: protoc --proto_path=examples/protos \
+#          --plugin=protoc-gen-debug=./protoc-gen-debug \
+#          --debug_out=. examples/protos/example.proto
+#
+# protoc still reports an error afterwards (this script never writes a
+# `CodeGeneratorResponse` to stdout), but by then it has already fed the
+# request through stdin, which is all this script needs.
+set -euo pipefail
+cat > request.bin

@@ -1,0 +1,17 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug protoc-gen-rust-mcp (replay saved request)",
+      "type": "lldb",
+      "request": "launch",
+      "cargo": {
+        "args": ["build", "-p", "protoc-gen-rust-mcp"]
+      },
+      "program": "${workspaceFolder}/target/debug/protoc-gen-rust-mcp",
+      "args": [],
+      "stdio": ["${workspaceFolder}/request.bin", null, null],
+      "cwd": "${workspaceFolder}"
+    }
+  ]
+}
