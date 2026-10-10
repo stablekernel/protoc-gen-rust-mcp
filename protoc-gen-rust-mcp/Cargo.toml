@@ -54,9 +54,6 @@ features = ["server", "client", "transport-io"]
 version = "1"
 features = ["macros", "rt-multi-thread"]
 
-[dev-dependencies.futures]
-version = "0.3"
-
 [dev-dependencies.tonic]
 version = "0.14"
 default-features = false
@@ -64,6 +61,3 @@ default-features = false
 # tests/server_integration.rs, so the generated handler body (#7) is
 # exercised against a real backend, not just a never-connecting client.
 features = ["codegen", "channel", "server", "router"]
-
-[dev-dependencies.tonic-prost]
-version = "0.14"

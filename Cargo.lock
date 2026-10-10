@@ -1155,7 +1155,6 @@ dependencies = [
 name = "protoc-gen-rust-mcp"
 version = "0.1.0"
 dependencies = [
- "futures",
  "heck",
  "jsonschema",
  "pbjson-types",
@@ -1173,7 +1172,6 @@ dependencies = [
  "test-fixtures",
  "tokio",
  "tonic",
- "tonic-prost",
 ]
 
 [[package]]
