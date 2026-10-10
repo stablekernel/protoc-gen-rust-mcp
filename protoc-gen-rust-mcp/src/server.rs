@@ -1,13 +1,56 @@
 //! Generates, for one gRPC service, the MCP server struct and its tool
-//! definitions and registration API: the counterpart of Go's
+//! definitions, handlers and registration API: the counterpart of Go's
 //! `generateMcpServerStruct`, `generateMcpServerService`, `generateMCPTool`,
-//! `generateToolRegistration` and `generateDefaultToolsRegistration`
-//! (`cmd/protoc-gen-go-mcp/mcp.go` at commit `9e072f9`). Handler *bodies*
-//! are #7; `method_handler_stub` below only emits a "not implemented" tool
-//! error, matching this issue's scope. `method_public_handler_fn` emits
-//! the public `pub async fn <method>_handler(&self, args)` wrapper Go also
-//! exports, so a caller can delegate to the default behavior from an
-//! overriding tool.
+//! `generateHandler`, `generateToolRegistration` and
+//! `generateDefaultToolsRegistration` (`cmd/protoc-gen-go-mcp/mcp.go` at
+//! commit `9e072f9`). `method_handler_fn` (this issue, #7) emits the real
+//! handler body: validate the raw arguments against the tool's input
+//! schema (the validation Go's `mcp.AddTool` does, which `rmcp` itself
+//! does not), decode them with the pbjson-generated `Deserialize`, call
+//! the tonic client, and encode the response with the pbjson-generated
+//! `Serialize`. `method_public_handler_fn` emits the public
+//! `pub async fn <method>_handler(&self, args)` wrapper Go also exports,
+//! so a caller can delegate to the default behavior from an overriding
+//! tool.
+//!
+//! # Argument validation, decoding, the tonic call, and the response
+//!
+//! - **Validation** happens first, against a `jsonschema::Validator`
+//!   compiled once per tool from the same schema embedded in the tool's
+//!   `inputSchema` (a package-level `static ..._VALIDATOR: LazyLock`, next
+//!   to the existing `..._INPUT_SCHEMA` constant). `None` arguments are
+//!   treated as `{}` (an empty object), matching Go's SDK (`applySchema`
+//!   unmarshals missing/`null` arguments into an empty map before
+//!   validating), since every input schema this generator emits has
+//!   `"type": "object"` and no required top-level properties (RPCs take
+//!   exactly one message argument, never scalars). On failure, every
+//!   failing instance path and reason is listed in the tool error text,
+//!   and the backend is never called.
+//! - **Decoding** uses `serde_json::from_value::<Request>`, the pbjson-
+//!   generated counterpart of Go's `protojson.Unmarshal`. A decode error
+//!   (schema validation already ruled out most of these, but pbjson's
+//!   `Deserialize` is independent code with its own opinions, e.g. an
+//!   out-of-range number for a sized integer type) becomes a tool error
+//!   without calling the backend.
+//! - **The tonic call** clones the handler's own client (already captured
+//!   per-registration, not per-call; see the module doc comment below) and
+//!   calls it with `tonic::Request::new(request)`. A `tonic::Status`
+//!   becomes a tool error formatted like grpc-go's `Status.Error()`:
+//!   `"rpc error: code = {code:?} desc = {message}"` — `tonic::Code`'s
+//!   `Debug` impl renders exactly grpc-go's CamelCase names (`NotFound`,
+//!   `InvalidArgument`, ...), confirmed against `tonic::Code` 0.14.6's
+//!   definition, so no separate name table is needed here.
+//! - **Encoding** uses `serde_json::to_string`, the pbjson-generated
+//!   counterpart of Go's `protojson.Marshal`: zero-valued fields are
+//!   omitted, 64-bit integers are JSON strings, and enums are field
+//!   names, matching protojson's own conventions on every point except
+//!   one documented divergence: pbjson serializes a non-finite
+//!   float/double as JSON `null`, where protojson emits the string
+//!   `"NaN"`/`"Infinity"`/`"-Infinity"`; this only affects tool *results*
+//!   (`float_schema` in `schema.rs` already documents that inputs accept
+//!   all three spellings either way). Reported in this issue's PR per
+//!   review feedback on #18, and pinned by `examples/tests/handler.rs`'s
+//!   `non_finite_floats_in_result_are_encoded_as_json_null`.
 //!
 //! # Shape
 //!
@@ -43,8 +86,8 @@
 
 use std::fmt::Write as _;
 
-use heck::{ToShoutySnakeCase, ToSnakeCase};
-use prost_reflect::{MethodDescriptor, ServiceDescriptor};
+use heck::{ToShoutySnakeCase, ToSnakeCase, ToUpperCamelCase};
+use prost_reflect::{MessageDescriptor, MethodDescriptor, ServiceDescriptor};
 use serde_json::Value;
 
 use crate::comments::{camel_to_space, process_comment_to_string};
@@ -52,10 +95,26 @@ use crate::rust_literal::rust_string_literal;
 use crate::schema::message_input_schema;
 use crate::source_info::leading_comments;
 
+/// The bounds this generator puts on a generated server's `T` type
+/// parameter: exactly what `VibeServiceClient<T>::unary` (tonic-generated,
+/// see e.g. `examples.v1.tonic.rs`) needs to be callable, plus `Clone +
+/// Send + Sync + 'static` so the generated struct itself is `Send + Sync`
+/// (required by `rmcp::ServerHandler`) and so a handler can clone the
+/// client into a `'static` future. Verified against rmcp 3.5.1 and tonic
+/// 0.14.6 by compiling and running the generated code's handler against a
+/// real tonic server (see this issue's discussion).
+const CLIENT_BOUNDS: &str = "\
+    T: ::tonic::client::GrpcService<::tonic::body::Body> + ::std::clone::Clone + ::std::marker::Send + ::std::marker::Sync + 'static,\n\
+    \u{20}   T::Error: ::std::convert::Into<::tonic::codegen::StdError>,\n\
+    \u{20}   T::ResponseBody: ::tonic::codegen::Body<Data = ::tonic::codegen::Bytes> + ::std::marker::Send + 'static,\n\
+    \u{20}   <T::ResponseBody as ::tonic::codegen::Body>::Error: ::std::convert::Into<::tonic::codegen::StdError> + ::std::marker::Send,\n\
+    \u{20}   T::Future: ::std::marker::Send,\n\
+";
+
 /// Renders the full generated module for one service: the input schema
-/// constants, the tool handler type alias, the server struct, its `impl`
-/// block (constructor, one `<method>_tool()` + stub handler + public
-/// `<method>_handler()` wrapper per unary RPC, `register_tool`,
+/// and validator constants, the tool handler type alias, the server
+/// struct, its `impl` block (constructor, one `<method>_tool()`, handler
+/// and public `<method>_handler()` wrapper per unary RPC, `register_tool`,
 /// `register_default_tools`, `into_tools`/`extend_tools`), and its
 /// `rmcp::ServerHandler` impl. Streaming RPCs are skipped, with a comment
 /// noting each one skipped (per the issue).
@@ -91,6 +150,8 @@ pub fn generate_service(service: &ServiceDescriptor) -> String {
 
     for method in &unary_methods {
         out.push_str(&schema_constant(service_name, method));
+        out.push('\n');
+        out.push_str(&validator_constant(service_name, method));
         out.push('\n');
     }
 
@@ -130,7 +191,7 @@ pub fn generate_service(service: &ServiceDescriptor) -> String {
         out,
         "impl<T> {server_name}<T>\n\
          where\n\
-         \u{20}   T: ::std::clone::Clone + ::std::marker::Send + ::std::marker::Sync + 'static,\n\
+         \u{20}   {CLIENT_BOUNDS}\
          {{\n"
     );
     let _ = write!(
@@ -158,7 +219,7 @@ pub fn generate_service(service: &ServiceDescriptor) -> String {
     for method in &unary_methods {
         out.push_str(&method_tool_fn(service_name, method));
         out.push('\n');
-        out.push_str(&method_handler_stub(&client_path, method));
+        out.push_str(&method_handler_fn(service_name, &client_path, method));
         out.push('\n');
         out.push_str(&method_public_handler_fn(method));
         out.push('\n');
@@ -184,7 +245,7 @@ pub fn generate_service(service: &ServiceDescriptor) -> String {
     );
 
     out.push_str(
-        "    /// Registers every unary RPC's tool with its stub handler, the\n\
+        "    /// Registers every unary RPC's tool with its default handler, the\n\
          \u{20}   /// counterpart of Go's `RegisterDefaultTools`.\n\
          \u{20}   pub fn register_default_tools(&mut self) -> &mut Self {\n",
     );
@@ -230,7 +291,7 @@ pub fn generate_service(service: &ServiceDescriptor) -> String {
         out,
         "impl<T> ::rmcp::ServerHandler for {server_name}<T>\n\
          where\n\
-         \u{20}   T: ::std::clone::Clone + ::std::marker::Send + ::std::marker::Sync + 'static,\n\
+         \u{20}   {CLIENT_BOUNDS}\
          {{\n\
          \u{20}   fn get_info(&self) -> ::rmcp::model::ServerConfig {{\n\
          \u{20}       ::rmcp::model::ServerConfig::new(\n\
@@ -337,29 +398,100 @@ fn method_description(method: &MethodDescriptor) -> String {
     }
 }
 
-/// The stub handler for one method: a private async associated function
-/// that takes an owned client and always returns a "not implemented" tool
-/// error. A later generator issue (#7) replaces this with argument
-/// validation, pbjson decoding, the tonic call, and a pbjson-encoded
-/// response. Named `call_<method>` (not `<method>_handler`, which is the
-/// public wrapper in [`method_public_handler_fn`]) because
-/// `register_default_tools` builds its closures from this one directly,
-/// cloning `self.client` once per registration rather than per call.
-fn method_handler_stub(client_path: &str, method: &MethodDescriptor) -> String {
+/// The name of the package-level `static ..._VALIDATOR: LazyLock<Validator>`
+/// constant for one method, named like [`schema_const_name`] but with a
+/// `_VALIDATOR` suffix instead of `_INPUT_SCHEMA`, so the two don't
+/// collide.
+fn validator_const_name(service_name: &str, method: &MethodDescriptor) -> String {
+    format!(
+        "{}_{}_VALIDATOR",
+        service_name.to_shouty_snake_case(),
+        method.name().to_shouty_snake_case()
+    )
+}
+
+/// The `static <SERVICE>_<METHOD>_VALIDATOR: LazyLock<jsonschema::Validator>`
+/// declaration for one method, compiled once from the method's own
+/// `..._INPUT_SCHEMA` constant: the validator `method_handler_fn`'s body
+/// checks a tool call's raw arguments against before decoding them, the
+/// validation Go's `mcp.AddTool` does and `rmcp` itself does not (this
+/// issue).
+fn validator_constant(service_name: &str, method: &MethodDescriptor) -> String {
+    let schema_const = schema_const_name(service_name, method);
+    let validator_const = validator_const_name(service_name, method);
+    format!(
+        "static {validator_const}: ::std::sync::LazyLock<::jsonschema::Validator> =\n    \
+         ::std::sync::LazyLock::new(|| {{\n        \
+         ::jsonschema::validator_for(&::serde_json::Value::Object({schema_const}.as_ref().clone()))\n            \
+         .unwrap_or_else(|e| panic!(\"compiling generated input schema: {{e}}\"))\n    \
+         }});\n"
+    )
+}
+
+/// The real handler for one method (this issue, #7): a private async
+/// associated function that takes an owned client and the raw tool call
+/// arguments (`None` treated as `{{}}`), and:
+///
+/// 1. Validates them against the method's `..._VALIDATOR`, returning a
+///    tool error listing every failing instance path and reason (backend
+///    not called) on failure.
+/// 2. Decodes them into the request message with
+///    `serde_json::from_value` (the pbjson-generated `Deserialize`),
+///    returning a tool error on failure (backend not called).
+/// 3. Calls the tonic client, returning a tool error formatted like
+///    grpc-go's `Status.Error()` on a `tonic::Status`.
+/// 4. Encodes the response with `serde_json::to_string` (the
+///    pbjson-generated `Serialize`) and returns it as a successful tool
+///    result.
+///
+/// Named `call_<method>` (not `<method>_handler`, which is the public
+/// wrapper in [`method_public_handler_fn`]) because `register_default_tools`
+/// builds its closures from this one directly, cloning `self.client` once
+/// per registration rather than once per call.
+fn method_handler_fn(service_name: &str, client_path: &str, method: &MethodDescriptor) -> String {
     let method_name = method.name();
     let fn_name = method_fn_name(method);
+    let validator_const = validator_const_name(service_name, method);
+    let request_path = rust_message_path(&method.input());
     format!(
-        "    /// Stub handler for `{method_name}`: always returns a \"not\n\
-         \u{20}   /// implemented\" tool error. A later generator issue (#7) replaces\n\
-         \u{20}   /// this with argument validation, pbjson decoding, the `{method_name}`\n\
-         \u{20}   /// tonic call, and a pbjson-encoded response.\n\
+        "    /// Validates, decodes, calls the backend for, and encodes the\n\
+         \u{20}   /// response of, a `{method_name}` tool call: see this module's doc\n\
+         \u{20}   /// comment for the exact steps.\n\
          \u{20}   async fn call_{fn_name}(\n\
-         \u{20}       _client: {client_path}<T>,\n\
-         \u{20}       _args: ::std::option::Option<::rmcp::model::JsonObject>,\n\
+         \u{20}       mut client: {client_path}<T>,\n\
+         \u{20}       args: ::std::option::Option<::rmcp::model::JsonObject>,\n\
          \u{20}   ) -> ::rmcp::model::CallToolResult {{\n\
-         \u{20}       ::rmcp::model::CallToolResult::error(vec![::rmcp::model::ContentBlock::text(\n\
-         \u{20}           \"{method_name} is not implemented\",\n\
-         \u{20}       )])\n\
+         \u{20}       let args = ::serde_json::Value::Object(args.unwrap_or_default());\n\
+         \u{20}       let errors: ::std::vec::Vec<::std::string::String> = {validator_const}\n\
+         \u{20}           .iter_errors(&args)\n\
+         \u{20}           .map(|e| ::std::format!(\"{{}}: {{e}}\", e.instance_path()))\n\
+         \u{20}           .collect();\n\
+         \u{20}       if !errors.is_empty() {{\n\
+         \u{20}           return ::rmcp::model::CallToolResult::error(vec![::rmcp::model::ContentBlock::text(\n\
+         \u{20}               ::std::format!(\"invalid arguments: {{}}\", errors.join(\"; \")),\n\
+         \u{20}           )]);\n\
+         \u{20}       }}\n\
+         \u{20}       let request: {request_path} = match ::serde_json::from_value(args) {{\n\
+         \u{20}           Ok(r) => r,\n\
+         \u{20}           Err(e) => {{\n\
+         \u{20}               return ::rmcp::model::CallToolResult::error(vec![::rmcp::model::ContentBlock::text(\n\
+         \u{20}                   ::std::format!(\"decoding arguments: {{e}}\"),\n\
+         \u{20}               )]);\n\
+         \u{20}           }}\n\
+         \u{20}       }};\n\
+         \u{20}       match client.{fn_name}(::tonic::Request::new(request)).await {{\n\
+         \u{20}           Ok(response) => match ::serde_json::to_string(response.get_ref()) {{\n\
+         \u{20}               Ok(json) => ::rmcp::model::CallToolResult::success(vec![::rmcp::model::ContentBlock::text(json)]),\n\
+         \u{20}               Err(e) => ::rmcp::model::CallToolResult::error(vec![::rmcp::model::ContentBlock::text(\n\
+         \u{20}                   ::std::format!(\"encoding response: {{e}}\"),\n\
+         \u{20}               )]),\n\
+         \u{20}           }},\n\
+         \u{20}           // grpc-go's Status.Error() format, which Go's generated server\n\
+         \u{20}           // returns verbatim as the tool error text.\n\
+         \u{20}           Err(status) => ::rmcp::model::CallToolResult::error(vec![::rmcp::model::ContentBlock::text(\n\
+         \u{20}               ::std::format!(\"rpc error: code = {{:?}} desc = {{}}\", status.code(), status.message()),\n\
+         \u{20}           )]),\n\
+         \u{20}       }}\n\
          \u{20}   }}\n"
     )
 }
@@ -369,13 +501,13 @@ fn method_handler_stub(client_path: &str, method: &MethodDescriptor) -> String {
 /// methods) so a caller can wrap a default handler, e.g. register an
 /// overriding tool that pre-processes arguments and then delegates to this
 /// one, which `register_default_tools` itself does not need (it calls the
-/// private [`method_handler_stub`] directly with a clone of `self.client`
+/// private [`method_handler_fn`] directly with a clone of `self.client`
 /// made once per registration, not once per call).
 fn method_public_handler_fn(method: &MethodDescriptor) -> String {
     let method_name = method.name();
     let fn_name = method_fn_name(method);
     format!(
-        "    /// Calls the stub handler for `{method_name}` with a clone of this\n\
+        "    /// Calls the handler for `{method_name}` with a clone of this\n\
          \u{20}   /// server's client. Exported so a caller can wrap it, e.g. an\n\
          \u{20}   /// overriding tool (via [`register_tool`](Self::register_tool)) that\n\
          \u{20}   /// pre-processes arguments and then delegates here.\n\
@@ -408,4 +540,95 @@ fn method_fn_name(method: &MethodDescriptor) -> String {
 /// identifier this plugin's own test data and `example.proto` use.
 pub fn client_mod_name(service: &ServiceDescriptor) -> String {
     format!("{}_client", service.name().to_snake_case())
+}
+
+/// Returns the Rust path `prost-build` generates for `message`, relative to
+/// the scope this generator's own output runs in (the package's module:
+/// the generated `.mcp.rs` is `include!`d directly into prost's own
+/// `<package>.rs`, the same scope every top-level message in the package
+/// lives in — see `generator.rs`'s module doc comment). A top-level
+/// message's path is just its own `UpperCamelCase` name (e.g.
+/// `SetVibeRequest`); a message nested inside another one picks up a
+/// `snake_case` module segment per enclosing message (e.g.
+/// `vibe_scalar::VibeEnum`'s sibling `VibeScalar::SomeNested` would be
+/// `vibe_scalar::SomeNested`), matching prost-build's own nested-type
+/// module naming (confirmed against `examples.v1.rs`'s committed
+/// `vibe_scalar` module) and [`heck::ToUpperCamelCase`]/[`heck::ToSnakeCase`]
+/// for the case conversions themselves (the same crate `prost-build` 0.14's
+/// `ident::to_upper_camel`/`to_snake` are built on). RPC request/response
+/// messages are never map entries (protoc rejects a map field as an RPC's
+/// type), so that prost-build special case does not apply here.
+fn rust_message_path(message: &MessageDescriptor) -> String {
+    let mut segments = Vec::new();
+    segments.push(message.name().to_upper_camel_case());
+    let mut parent = message.parent_message();
+    while let Some(m) = parent {
+        segments.push(m.name().to_snake_case());
+        parent = m.parent_message();
+    }
+    segments.reverse();
+    segments.join("::")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use prost_reflect::DescriptorPool;
+    use prost_types::field_descriptor_proto::{Label, Type};
+    use prost_types::{DescriptorProto, FieldDescriptorProto, FileDescriptorProto};
+
+    /// A `FileDescriptorProto` whose top-level `Outer` message has a
+    /// nested `Outer.Inner` message, for [`rust_message_path`]'s nested-
+    /// message case (not exercised by `example.proto` or
+    /// `tests/testdata/mcpgen/fixture.proto`, whose RPCs only use
+    /// top-level messages).
+    fn pool_with_nested_message() -> DescriptorPool {
+        let field = |name: &str, number: i32| FieldDescriptorProto {
+            name: Some(name.to_string()),
+            number: Some(number),
+            label: Some(Label::Optional as i32),
+            r#type: Some(Type::String as i32),
+            ..Default::default()
+        };
+        let inner = DescriptorProto {
+            name: Some("Inner".to_string()),
+            field: vec![field("value", 1)],
+            ..Default::default()
+        };
+        let outer = DescriptorProto {
+            name: Some("Outer".to_string()),
+            field: vec![field("value", 1)],
+            nested_type: vec![inner],
+            ..Default::default()
+        };
+        let file = FileDescriptorProto {
+            name: Some("nested.proto".to_string()),
+            package: Some("nestedpb".to_string()),
+            message_type: vec![outer],
+            syntax: Some("proto3".to_string()),
+            ..Default::default()
+        };
+        DescriptorPool::from_file_descriptor_set(prost_types::FileDescriptorSet {
+            file: vec![file],
+        })
+        .expect("building descriptor pool")
+    }
+
+    #[test]
+    fn rust_message_path_for_top_level_message() {
+        let pool = pool_with_nested_message();
+        let outer = pool
+            .get_message_by_name("nestedpb.Outer")
+            .expect("Outer message");
+        assert_eq!(rust_message_path(&outer), "Outer");
+    }
+
+    #[test]
+    fn rust_message_path_for_nested_message() {
+        let pool = pool_with_nested_message();
+        let inner = pool
+            .get_message_by_name("nestedpb.Outer.Inner")
+            .expect("Outer.Inner message");
+        assert_eq!(rust_message_path(&inner), "outer::Inner");
+    }
 }

@@ -47,7 +47,10 @@ version = "0.3"
 [dev-dependencies.tonic]
 version = "0.14"
 default-features = false
-features = ["codegen", "channel"]
+# "server" + "router" run a real in-process tonic server in
+# tests/server_integration.rs, so the generated handler body (#7) is
+# exercised against a real backend, not just a never-connecting client.
+features = ["codegen", "channel", "server", "router"]
 
 [dev-dependencies.tonic-prost]
 version = "0.14"
