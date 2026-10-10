@@ -16,7 +16,7 @@
 //! This file also carries the issue's **cross-implementation parity
 //! fixture**: `tools/list`'s result is asserted JSON-equal to
 //! `parity/go-v0.3.0-tools.json`, captured from Go's committed
-//! `example_mcp.pb.go` (see that file's header comment for how), and
+//! `example_mcp.pb.go` (see `parity/README.md` for exactly how), and
 //! `SetVibeDetails`'s `tools/call` result text is asserted JSON-equal to
 //! the value Go's generated handler would produce for the same input
 //! (`protojson.Marshal` and this crate's pbjson encoding agree on field
@@ -172,9 +172,10 @@ struct ToolResult {
 /// Wires a fake gRPC backend ([`FakeVibeService`]) to the generated MCP
 /// server over a real in-process TCP connection, and an MCP client to
 /// that server over an in-memory duplex transport, mirroring Go's
-/// `newTestHarness`. Returns the backend (to assert on recorded
-/// requests), a handle to set `SetVibe`'s canned error, and the
-/// connected rmcp client.
+/// `newTestHarness`. Returns the backend, shared behind an `Arc` so a
+/// test can both assert on its recorded requests and set `SetVibe`'s
+/// canned error (`fake.set_vibe_err`) directly, and the connected rmcp
+/// client.
 async fn new_test_harness() -> (
     std::sync::Arc<FakeVibeService>,
     rmcp::service::RunningService<rmcp::RoleClient, ()>,
@@ -504,8 +505,10 @@ async fn call_set_vibe_grpc_error_becomes_tool_error() {
     .await;
 
     assert!(result.is_error);
-    assert!(result.text.contains("vibe not found"));
-    assert!(result.text.contains("NotFound"));
+    assert_eq!(
+        result.text,
+        "rpc error: code = NotFound desc = vibe not found"
+    );
 }
 
 /// The counterpart of Go's `TestCallSetVibe_InvalidArgumentType`: a wrong
@@ -553,7 +556,7 @@ async fn call_set_vibe_unknown_field_never_reaches_backend() {
 /// **Parity fixture (part 1 of 2):** `tools/list`'s result is JSON-equal
 /// to `parity/go-v0.3.0-tools.json`, captured from Go's committed
 /// `example_mcp.pb.go` (`stablekernel/protoc-gen-go-mcp` `9e072f9`; see
-/// that fixture file's header comment for exactly how). Tool
+/// `parity/README.md` for exactly how). Tool
 /// *registration order* is deliberately not checked here (this
 /// generator keeps tools in a `BTreeMap`, alphabetical by name, unlike
 /// Go's insertion-ordered slice; `examples/tests/mcp_tool_parity.rs`
