@@ -1,10 +1,16 @@
 //! Integration test for `server::generate_service`'s output (issue #6's
-//! acceptance criteria), exercised end-to-end over an in-memory MCP
-//! transport against the real tonic-generated client code for
+//! tool/registration acceptance criteria, and issue #7's handler-body
+//! acceptance criteria: validation, pbjson decoding, the tonic call, and
+//! pbjson encoding), exercised end-to-end over an in-memory MCP transport
+//! against the real tonic-generated client code for
 //! `tests/testdata/mcpgen/fixture.proto` (compiled by `build.rs` with real
-//! `tonic-prost-build`, and this crate's own generator run against the
-//! same descriptors; see `build.rs`'s `generate_mcpgen_fixture` for how
-//! `mcpgen.rs` and `mcpgen.mcp.rs` land in `OUT_DIR`).
+//! `tonic-prost-build` and `pbjson-build`, and this crate's own generator
+//! run against the same descriptors; see `build.rs`'s
+//! `generate_mcpgen_fixture` for how `mcpgen.rs`, `mcpgen.serde.rs` and
+//! `mcpgen.mcp.rs` land in `OUT_DIR`). `examples/tests/handler.rs` covers
+//! the same #7 criteria again against the real, committed example
+//! `VibeService` server, so a schema/pbjson regression in the real
+//! generated code (not just this synthetic fixture) is also caught.
 //!
 //! Unlike `examples/`, this fixture's generated code is not committed:
 //! `fixture.proto` exists only to give this test a service with a

@@ -244,7 +244,7 @@ pub fn generate_service(service: &ServiceDescriptor) -> String {
     );
 
     out.push_str(
-        "    /// Registers every unary RPC's tool with its stub handler, the\n\
+        "    /// Registers every unary RPC's tool with its default handler, the\n\
          \u{20}   /// counterpart of Go's `RegisterDefaultTools`.\n\
          \u{20}   pub fn register_default_tools(&mut self) -> &mut Self {\n",
     );

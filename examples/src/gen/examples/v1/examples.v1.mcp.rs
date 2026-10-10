@@ -436,7 +436,7 @@ where
         self
     }
 
-    /// Registers every unary RPC's tool with its stub handler, the
+    /// Registers every unary RPC's tool with its default handler, the
     /// counterpart of Go's `RegisterDefaultTools`.
     pub fn register_default_tools(&mut self) -> &mut Self {
         {
