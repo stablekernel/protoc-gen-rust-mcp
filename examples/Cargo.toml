@@ -41,3 +41,12 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 # tonic server in tests/handler.rs ("server" and "channel" are already
 # pulled in by [dependencies].tonic above).
 tonic = { version = "0.14", default-features = false, features = ["router"] }
+# tests/handler.rs drives the generated server through a real rmcp
+# client ("client") over an in-memory duplex transport
+# ("transport-io"), instead of calling the handler directly, so it
+# exercises the same wire path a real MCP client would. Needed here (in
+# addition to [dependencies]'s "server") so `cargo test -p examples`
+# compiles on its own, without relying on feature unification with
+# protoc-gen-rust-mcp's own dev-dependency on rmcp under
+# `cargo test --workspace`.
+rmcp = { version = "3.5", default-features = false, features = ["client", "transport-io"] }

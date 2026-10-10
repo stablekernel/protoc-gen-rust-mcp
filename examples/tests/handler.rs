@@ -56,9 +56,11 @@ impl VibeService for FakeVibeService {
 
     async fn set_vibe_array(
         &self,
-        _request: tonic::Request<SetVibeArrayRequest>,
+        request: tonic::Request<SetVibeArrayRequest>,
     ) -> Result<tonic::Response<SetVibeArrayResponse>, tonic::Status> {
-        Err(tonic::Status::unimplemented("not used by this test"))
+        Ok(tonic::Response::new(SetVibeArrayResponse {
+            vibe_array: request.into_inner().vibe_array,
+        }))
     }
 
     async fn set_vibe_objects(
@@ -271,4 +273,65 @@ async fn non_finite_floats_are_accepted_as_input() {
             text_of(&result)
         );
     }
+}
+
+/// Pinning the pbjson-vs-protojson difference flagged on #18's review and
+/// documented in `server.rs`'s module doc comment: a non-finite
+/// float/double comes back from the backend as JSON `null` in the tool
+/// *result* (unlike protojson's `"NaN"`/`"Infinity"`/`"-Infinity"`
+/// strings). A module doc comment alone doesn't catch a pbjson change
+/// that fixes or worsens this, so this test does.
+#[tokio::test]
+async fn non_finite_floats_in_result_are_encoded_as_json_null() {
+    let mut server = VibeServiceMcpServer::new(serve_backend().await);
+    server.register_default_tools();
+    let client = serve(server).await;
+
+    let mut args = JsonObject::new();
+    args.insert(
+        "vibeArray".to_string(),
+        serde_json::json!({"vibeDoubles": ["NaN", "Infinity", "-Infinity"]}),
+    );
+    let result = client
+        .call_tool(CallToolRequestParams::new("SetVibeArray").with_arguments(args))
+        .await
+        .expect("call_tool");
+    assert_eq!(result.is_error, Some(false));
+    assert_eq!(
+        text_of(&result),
+        r#"{"vibeArray":{"vibeDoubles":[null,null,null]}}"#
+    );
+}
+
+/// An enum given as its underlying number (`1` for `VIBE_GOOD`) is
+/// accepted by pbjson's generated `Deserialize` (see
+/// `vibe_scalar::VibeEnum`'s `Deserialize` impl's `visit_i64`/`visit_u64`)
+/// but rejected by the schema, which restricts enums to their name
+/// strings (`schema.rs`'s `enum_schema`). Unlike the wrong-type and
+/// unknown-field cases above, pbjson's own decode would *accept* this
+/// input, so this is the one case that isolates schema validation from
+/// decoding: without the validation branch, this would reach (and fail
+/// only at) decode, or succeed outright.
+#[tokio::test]
+async fn enum_as_number_is_rejected_by_schema_without_calling_backend() {
+    let mut server = VibeServiceMcpServer::new(lazy_client());
+    server.register_default_tools();
+    let client = serve(server).await;
+
+    let mut args = JsonObject::new();
+    args.insert("vibe".to_string(), serde_json::json!("details"));
+    args.insert(
+        "vibeScalar".to_string(),
+        serde_json::json!({"vibeEnum": [1]}),
+    );
+    let result = client
+        .call_tool(CallToolRequestParams::new("SetVibeDetails").with_arguments(args))
+        .await
+        .expect("call_tool");
+    assert_eq!(result.is_error, Some(true));
+    assert_eq!(
+        text_of(&result),
+        "invalid arguments: /vibeScalar/vibeEnum/0: 1 is not of type \"string\"; \
+         /vibeScalar/vibeEnum/0: 1 is not one of \"VIBE_UNSET\" or \"VIBE_GOOD\""
+    );
 }

@@ -49,7 +49,8 @@
 //!   `"NaN"`/`"Infinity"`/`"-Infinity"`; this only affects tool *results*
 //!   (`float_schema` in `schema.rs` already documents that inputs accept
 //!   all three spellings either way). Reported in this issue's PR per
-//!   review feedback on #18.
+//!   review feedback on #18, and pinned by `examples/tests/handler.rs`'s
+//!   `non_finite_floats_in_result_are_encoded_as_json_null`.
 //!
 //! # Shape
 //!
