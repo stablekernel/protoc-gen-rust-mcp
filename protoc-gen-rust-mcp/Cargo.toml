@@ -21,16 +21,29 @@ prost-types = "0.14"
 prost-reflect = "0.16"
 serde_json = "1"
 heck = "0.5"
+# Formats generator.rs's output with the same approach prost-build and
+# tonic-build use for their own generated code (see
+# prost_build::Config::format's prettyplease::unparse call): a normal
+# dependency, not a build-dependency, since it runs inside this crate's
+# own library code (generator::generate), not a build script (#22: this
+# crate has no build.rs at all; see test-fixtures/ for the proto
+# compilation this crate's *tests* need).
+syn = { version = "3", default-features = false, features = ["parsing"] }
+prettyplease = "0.3"
 
 [dev-dependencies]
 jsonschema = { version = "0.58", default-features = false }
 pretty_assertions = "1.4"
 protox = "0.10.0"
 rand = "0.10"
-pbjson = "0.8"
 pbjson-types = "0.8"
 serde = { version = "1", features = ["derive"] }
-syn = { version = "3", features = ["parsing"] }
+# Compiles tests/testdata/{schemapb,mcpgen} (via its own build.rs) and
+# runs this crate's own generator against the mcpgen fixture with real
+# tonic-generated/pbjson-generated types, so schema.rs's and
+# server_integration.rs's tests don't need this crate's own build.rs to
+# do that work (#22).
+test-fixtures = { path = "../test-fixtures" }
 
 [dev-dependencies.rmcp]
 version = "3.5"
@@ -41,9 +54,6 @@ features = ["server", "client", "transport-io"]
 version = "1"
 features = ["macros", "rt-multi-thread"]
 
-[dev-dependencies.futures]
-version = "0.3"
-
 [dev-dependencies.tonic]
 version = "0.14"
 default-features = false
@@ -51,24 +61,3 @@ default-features = false
 # tests/server_integration.rs, so the generated handler body (#7) is
 # exercised against a real backend, not just a never-connecting client.
 features = ["codegen", "channel", "server", "router"]
-
-[dev-dependencies.tonic-prost]
-version = "0.14"
-
-[build-dependencies]
-# Used only by build.rs, to compile tests/testdata/schemapb/schema.proto
-# (and tests/testdata/mcpgen/fixture.proto, for server.rs's integration
-# test) into pbjson-generated and tonic-generated Rust types, and (for the
-# mcpgen fixture) to run this crate's own code generator: build.rs
-# `#[path]`-includes src/{comments,rust_literal,schema,server,
-# source_info}.rs directly (a build script can't depend on the library
-# it's building), so every crate those modules import needs to be
-# available here too, not just under [dependencies].
-protox = "0.10"
-prost-build = "0.14"
-prost-reflect = "0.16"
-prost-types = "0.14"
-pbjson-build = "0.8"
-tonic-prost-build = { version = "0.14", default-features = false }
-heck = "0.5"
-serde_json = "1"

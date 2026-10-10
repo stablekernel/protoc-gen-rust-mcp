@@ -435,38 +435,28 @@ fn leading_comment(path: &[i32], file: &prost_types::FileDescriptorProto) -> Str
     process_comment_to_string(raw)
 }
 
-/// The pbjson-generated Rust types for `tests/testdata/schemapb/schema.proto`
-/// (compiled by `build.rs`), used by the tests below to validate generated
-/// schemas against real pbjson-serialized messages: the counterpart of Go's
-/// `schema_test.go` validating against `protojson`-marshaled messages.
-#[cfg(test)]
-#[allow(
-    missing_docs,
-    clippy::all,
-    clippy::pedantic,
-    dead_code,
-    unreachable_pub
-)]
-mod schemapb {
-    include!(concat!(env!("OUT_DIR"), "/schemapb.rs"));
-    include!(concat!(env!("OUT_DIR"), "/schemapb.serde.rs"));
-}
-
 #[cfg(test)]
 mod tests {
-    use super::schemapb;
     use super::*;
     use prost_reflect::DescriptorPool;
     use serde_json::Map as JsonMap;
     use std::path::PathBuf;
+    // The pbjson-generated Rust types for test-fixtures'
+    // `testdata/schemapb/schema.proto` (compiled by its own build.rs; see
+    // #22), used below to validate generated schemas against real
+    // pbjson-serialized messages: the counterpart of Go's
+    // `schema_test.go` validating against `protojson`-marshaled messages.
+    use test_fixtures::schemapb;
 
     /// Compiles `cmd/protoc-gen-go-mcp/testdata/schemapb/schema.proto`
-    /// (vendored under `tests/testdata/schemapb/`) and returns the
+    /// (vendored under `test-fixtures/testdata/schemapb/`) and returns the
     /// `MessageDescriptor` for `message_name`. Uses `protox`, a pure-Rust
     /// protobuf compiler, so `cargo test` never depends on network access
     /// or an installed `protoc`.
     fn load_message(message_name: &str) -> MessageDescriptor {
-        let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/testdata/schemapb");
+        let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("test-fixtures/testdata/schemapb");
         let fds = protox::compile(["schema.proto"], [dir]).expect("compiling schema.proto");
         let pool = DescriptorPool::from_file_descriptor_set(fds).expect("building descriptor pool");
         pool.get_message_by_name(&format!("schemapb.{message_name}"))

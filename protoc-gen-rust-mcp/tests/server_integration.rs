@@ -3,14 +3,17 @@
 //! acceptance criteria: validation, pbjson decoding, the tonic call, and
 //! pbjson encoding), exercised end-to-end over an in-memory MCP transport
 //! against the real tonic-generated client code for
-//! `tests/testdata/mcpgen/fixture.proto` (compiled by `build.rs` with real
-//! `tonic-prost-build` and `pbjson-build`, and this crate's own generator
-//! run against the same descriptors; see `build.rs`'s
-//! `generate_mcpgen_fixture` for how `mcpgen.rs`, `mcpgen.serde.rs` and
-//! `mcpgen.mcp.rs` land in `OUT_DIR`). `examples/tests/handler.rs` covers
-//! the same #7 criteria again against the real, committed example
-//! `VibeService` server, so a schema/pbjson regression in the real
-//! generated code (not just this synthetic fixture) is also caught.
+//! `test-fixtures/testdata/mcpgen/fixture.proto` (compiled by
+//! `test-fixtures/build.rs` with real `tonic-prost-build` and
+//! `pbjson-build`, and this crate's own generator run against the same
+//! descriptors; see that build script's `generate_mcpgen_fixture` for how
+//! `mcpgen.rs`, `mcpgen.serde.rs` and `mcpgen.mcp.rs` land in its
+//! `OUT_DIR`, re-exported here as `test_fixtures::mcpgen`; #22 moved this
+//! out of this crate's own `build.rs`, which no longer exists).
+//! `examples/tests/handler.rs` covers the same #7 criteria again against
+//! the real, committed example `VibeService` server, so a schema/pbjson
+//! regression in the real generated code (not just this synthetic
+//! fixture) is also caught.
 //!
 //! Unlike `examples/`, this fixture's generated code is not committed:
 //! `fixture.proto` exists only to give this test a service with a
@@ -18,18 +21,7 @@
 //! cross-service composition test), without changing the shared parity
 //! fixture.
 
-#[allow(
-    dead_code,
-    missing_docs,
-    clippy::all,
-    clippy::pedantic,
-    unreachable_pub
-)]
-mod mcpgen {
-    include!(concat!(env!("OUT_DIR"), "/mcpgen.rs"));
-    include!(concat!(env!("OUT_DIR"), "/mcpgen.serde.rs"));
-    include!(concat!(env!("OUT_DIR"), "/mcpgen.mcp.rs"));
-}
+use test_fixtures::mcpgen;
 
 use mcpgen::other_fixture_service_client::OtherFixtureServiceClient;
 use mcpgen::other_fixture_service_server::{OtherFixtureService, OtherFixtureServiceServer};

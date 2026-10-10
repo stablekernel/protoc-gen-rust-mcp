@@ -1088,6 +1088,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "prettyplease"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2bfe0f4c752e450fc2faf62654f1c134747922825d5b04ca717b8874f41a40c0"
+dependencies = [
+ "proc-macro2",
+ "syn 3.0.6",
+]
+
+[[package]]
 name = "proc-macro2"
 version = "1.0.107"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1131,7 +1141,7 @@ dependencies = [
  "log",
  "multimap",
  "petgraph",
- "prettyplease",
+ "prettyplease 0.2.37",
  "prost",
  "prost-types",
  "regex",
@@ -1177,15 +1187,12 @@ dependencies = [
 name = "protoc-gen-rust-mcp"
 version = "0.1.0"
 dependencies = [
- "futures",
  "heck",
  "jsonschema",
- "pbjson",
- "pbjson-build",
  "pbjson-types",
  "pretty_assertions",
+ "prettyplease 0.3.0",
  "prost",
- "prost-build",
  "prost-reflect",
  "prost-types",
  "protox",
@@ -1194,10 +1201,9 @@ dependencies = [
  "serde",
  "serde_json",
  "syn 3.0.6",
+ "test-fixtures",
  "tokio",
  "tonic",
- "tonic-prost",
- "tonic-prost-build",
 ]
 
 [[package]]
@@ -1569,6 +1575,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "test-fixtures"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "jsonschema",
+ "pbjson",
+ "pbjson-build",
+ "pbjson-types",
+ "prost",
+ "prost-build",
+ "prost-reflect",
+ "prost-types",
+ "protoc-gen-rust-mcp",
+ "protox",
+ "rmcp",
+ "serde",
+ "serde_json",
+ "tonic",
+ "tonic-prost",
+ "tonic-prost-build",
+]
+
+[[package]]
 name = "thiserror"
 version = "2.0.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1675,7 +1704,7 @@ version = "0.14.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c68f61875ac5293cf72e6c8cf0158086428c82c37229e98c840878f1706b0322"
 dependencies = [
- "prettyplease",
+ "prettyplease 0.2.37",
  "proc-macro2",
  "quote",
  "syn 2.0.119",
@@ -1698,7 +1727,7 @@ version = "0.14.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "654e5643eff75d7f8c99197ce1440ed19a3474eada74c12bbac488b2cafdae27"
 dependencies = [
- "prettyplease",
+ "prettyplease 0.2.37",
  "proc-macro2",
  "prost-build",
  "prost-types",
